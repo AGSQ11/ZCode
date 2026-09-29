@@ -102,3 +102,23 @@ test("history is bounded at 500 outcomes", () => {
   }
   assert.equal(entry.history.length, 500);
 });
+
+test("outcome records carry the right provenance source", () => {
+  // 观察类 wrapper 必须写入 observed-*，不能再被状态推断成 manual-probe。
+  const failed = applyObservedFailure(aliveEntry(), 1000);
+  assert.equal(failed.history.at(-1)?.source, "observed-failure");
+
+  const succeeded = applyObservedSuccess(aliveEntry(), 1000, 42);
+  assert.equal(succeeded.history.at(-1)?.source, "observed-success");
+
+  // 公开 applyProbeOutcome 保持原有状态推断语义。
+  const manual = applyProbeOutcome(aliveEntry(), { ok: true, checkedAt: 1000 });
+  assert.equal(manual.history.at(-1)?.source, "manual-probe");
+
+  const recheck = applyProbeOutcome(deadEntry(), {
+    ok: false,
+    checkedAt: 3_000_000,
+    error: "down",
+  });
+  assert.equal(recheck.history.at(-1)?.source, "scheduled-recheck");
+});

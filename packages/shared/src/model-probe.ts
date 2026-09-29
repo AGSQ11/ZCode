@@ -22,17 +22,17 @@ export interface ModelProbeOutcomeRecord extends ModelProbeOutcome {
 }
 
 export interface ModelProbeEntry extends ModelProbeKey {
-  status: ModelProbeStatus;
-  lastCheckedAt?: number;
-  latencyMs?: number;
-  ttftMs?: number;
-  lastError?: string;
+  readonly status: ModelProbeStatus;
+  readonly lastCheckedAt?: number;
+  readonly latencyMs?: number;
+  readonly ttftMs?: number;
+  readonly lastError?: string;
   /** 当前故障验证已计入的失败次数；成功后清零。 */
-  attemptCount: number;
+  readonly attemptCount: number;
   /** Dead 模型的下一次后台复查墙钟毫秒；其余状态 undefined。 */
-  nextRetryAt?: number;
+  readonly nextRetryAt?: number;
   /** 有界历史：最新 500 条 outcome，尾部追加。 */
-  history: ModelProbeOutcomeRecord[];
+  readonly history: readonly ModelProbeOutcomeRecord[];
 }
 
 export const MODEL_PROBE_HISTORY_LIMIT = 500;
@@ -71,15 +71,14 @@ function reschedule(entry: ModelProbeEntry, checkedAt: number): ModelProbeEntry 
 }
 
 /**
- * 探测结果（手工探测、计划复查）落入账本。失败达到阈值即判 Dead 并安排复查；
+ * 内部实现：outcome 携带显式 source 落入账本。失败达到阈值即判 Dead 并安排复查；
  * 未达阈值保持当前状态继续重试。成功立即 Alive。
  */
-export function applyProbeOutcome(
+function applyOutcome(
   entry: ModelProbeEntry,
   outcome: ModelProbeOutcome,
+  source: ModelProbeOutcomeRecord["source"],
 ): ModelProbeEntry {
-  const source: ModelProbeOutcomeRecord["source"] =
-    entry.status === "dead" ? "scheduled-recheck" : "manual-probe";
   const recorded = withHistory(entry, { ...outcome, source });
   if (outcome.ok) {
     return {
@@ -111,9 +110,26 @@ export function applyProbeOutcome(
   return dead ? reschedule(next, outcome.checkedAt) : next;
 }
 
+/**
+ * 探测结果（手工探测、计划复查）落入账本，按当前状态推断来源：
+ * Dead 条目的失败视为后台复查结果，其余视为手工探测。
+ */
+export function applyProbeOutcome(
+  entry: ModelProbeEntry,
+  outcome: ModelProbeOutcome,
+): ModelProbeEntry {
+  const source: ModelProbeOutcomeRecord["source"] =
+    entry.status === "dead" ? "scheduled-recheck" : "manual-probe";
+  return applyOutcome(entry, outcome, source);
+}
+
 /** 正常会话内的模型请求终止性失败：算初次失败；健康重试由引擎调度，失败逐次计入。 */
 export function applyObservedFailure(entry: ModelProbeEntry, checkedAt: number): ModelProbeEntry {
-  return applyProbeOutcome(entry, { ok: false, checkedAt, error: "observed model error" });
+  return applyOutcome(
+    entry,
+    { ok: false, checkedAt, error: "observed model error" },
+    "observed-failure",
+  );
 }
 
 /** 正常会话内模型请求成功：立即复活。 */
@@ -122,7 +138,7 @@ export function applyObservedSuccess(
   checkedAt: number,
   latencyMs?: number,
 ): ModelProbeEntry {
-  return applyProbeOutcome(entry, { ok: true, checkedAt, latencyMs });
+  return applyOutcome(entry, { ok: true, checkedAt, latencyMs }, "observed-success");
 }
 
 /** 用户主动取消/中止不算模型死亡；不进入账本历史。 */
