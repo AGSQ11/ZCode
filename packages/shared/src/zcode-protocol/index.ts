@@ -2145,6 +2145,96 @@ export type ZCodeProviderTestModelConnectivityResult = z.infer<
   typeof zcodeProviderTestModelConnectivityResultSchema
 >;
 
+// 模型健康探测协议：wire 结构镜像 shared/model-probe 的账本类型，字段名与枚举值保持一致；
+// entry 的 history 使用带 source 的 outcome 记录，对应 ModelProbeOutcomeRecord。
+export const zcodeModelProbeKeySchema = z.object({
+  providerId: z.string().min(1),
+  modelId: z.string().min(1),
+});
+
+export const zcodeModelProbeOutcomeSchema = z.object({
+  ok: z.boolean(),
+  checkedAt: z.number(),
+  latencyMs: z.number().optional(),
+  ttftMs: z.number().optional(),
+  error: z.string().optional(),
+  source: z.enum(["manual-probe", "observed-failure", "observed-success", "scheduled-recheck"]),
+});
+
+export const zcodeModelProbeEntrySchema = z.intersection(
+  zcodeModelProbeKeySchema,
+  z.object({
+    status: z.enum(["alive", "dead", "unknown"]),
+    lastCheckedAt: z.number().optional(),
+    latencyMs: z.number().optional(),
+    ttftMs: z.number().optional(),
+    lastError: z.string().optional(),
+    attemptCount: z.number().int().nonnegative(),
+    nextRetryAt: z.number().optional(),
+    history: z.array(zcodeModelProbeOutcomeSchema),
+  }),
+);
+
+export const zcodeModelProbeConfigSchema = z.object({
+  probeTimeoutMs: z.number().int().min(1_000).max(120_000),
+  concurrency: z.number().int().min(1).max(16),
+  deadRecheckIntervalMs: z
+    .number()
+    .int()
+    .min(60_000)
+    .max(24 * 60 * 60 * 1000),
+});
+
+export const zcodeModelProbeViewSchema = z.object({
+  revision: z.number(),
+  config: zcodeModelProbeConfigSchema,
+  entries: z.array(zcodeModelProbeEntrySchema),
+  probingProviderIds: z.array(z.string()),
+});
+
+export const zcodeProviderModelProbeGetViewParamsSchema = z.object({
+  workspace: zcodeWorkspaceRefSchema,
+});
+export const zcodeProviderModelProbeGetViewResultSchema = zcodeModelProbeViewSchema;
+
+export const zcodeProviderModelProbeProbeAllParamsSchema = z.object({
+  workspace: zcodeWorkspaceRefSchema,
+  config: zcodeModelProbeConfigSchema.partial().optional(),
+});
+export const zcodeProviderModelProbeProbeAllResultSchema = z.object({
+  started: z.boolean(),
+});
+
+export const zcodeProviderModelProbeUpdateConfigParamsSchema = z.object({
+  workspace: zcodeWorkspaceRefSchema,
+  config: zcodeModelProbeConfigSchema,
+});
+export const zcodeProviderModelProbeUpdateConfigResultSchema = zcodeModelProbeViewSchema;
+
+export type ZCodeModelProbeKey = z.infer<typeof zcodeModelProbeKeySchema>;
+export type ZCodeModelProbeOutcome = z.infer<typeof zcodeModelProbeOutcomeSchema>;
+export type ZCodeModelProbeEntry = z.infer<typeof zcodeModelProbeEntrySchema>;
+export type ZCodeModelProbeConfig = z.infer<typeof zcodeModelProbeConfigSchema>;
+export type ZCodeModelProbeView = z.infer<typeof zcodeModelProbeViewSchema>;
+export type ZCodeProviderModelProbeGetViewParams = z.infer<
+  typeof zcodeProviderModelProbeGetViewParamsSchema
+>;
+export type ZCodeProviderModelProbeGetViewResult = z.infer<
+  typeof zcodeProviderModelProbeGetViewResultSchema
+>;
+export type ZCodeProviderModelProbeProbeAllParams = z.infer<
+  typeof zcodeProviderModelProbeProbeAllParamsSchema
+>;
+export type ZCodeProviderModelProbeProbeAllResult = z.infer<
+  typeof zcodeProviderModelProbeProbeAllResultSchema
+>;
+export type ZCodeProviderModelProbeUpdateConfigParams = z.infer<
+  typeof zcodeProviderModelProbeUpdateConfigParamsSchema
+>;
+export type ZCodeProviderModelProbeUpdateConfigResult = z.infer<
+  typeof zcodeProviderModelProbeUpdateConfigResultSchema
+>;
+
 export const zcodeProviderUpdateAccountConfigParamsSchema = z
   .object({
     revision: nonEmptyString,
@@ -3613,6 +3703,10 @@ export const zcodeProtocolMethods = {
   workspaceGenerateText: "workspace/generateText",
   workspaceCancelGenerateText: "workspace/cancelGenerateText",
   providerTestModelConnectivity: "provider/testModelConnectivity",
+  // 模型健康探测：视图读取、全量探测与配置更新，由 host 的 probe 引擎处理。
+  providerModelProbeGetView: "provider/modelProbeGetView",
+  providerModelProbeProbeAll: "provider/modelProbeProbeAll",
+  providerModelProbeUpdateConfig: "provider/modelProbeUpdateConfig",
   mcpList: "mcp/list",
   pluginsList: "plugins/list",
   pluginsReferenceCatalog: "plugins/referenceCatalog",
