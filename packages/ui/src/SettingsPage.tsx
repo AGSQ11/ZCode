@@ -55,6 +55,7 @@ import {
 } from "@/lib/accountProviderAccess.js";
 import { buildUsageEntitlementCacheKey } from "@/lib/usageEntitlementCache.js";
 import { ModelProviderSection } from "@/settings/ModelProviderSection.js";
+import { ModelProbeSection } from "@/settings/ModelProbeSection.js";
 import { useCodingPlanUpgradeDialog } from "@/settings/CodingPlanUpgradeDialogProvider.js";
 import { useEnterpriseCodingPlanProducts } from "@/settings/model-provider-section/useEnterpriseCodingPlanProducts.js";
 import { UsageStatsSection, type UsageStatsSectionTab } from "@/settings/UsageStatsSection.js";
@@ -1819,6 +1820,14 @@ export function SettingsPage({
                               onConsumePendingModelProviderTarget={() =>
                                 setPendingModelProviderTarget(undefined)
                               }
+                            />
+                          </ServiceProvider>
+                        ) : activeSection === "modelProbe" ? (
+                          <ServiceProvider services={localHostServices}>
+                            {/* 健康账本是 Host 全局事实；远端 workspace 激活时仍读本机 Host。 */}
+                            <ModelProbeSection
+                              workspacePath={activeWorkspacePath ?? captionWorkspacePath ?? ""}
+                              workspaceIdentity={activeWorkspaceIdentity}
                             />
                           </ServiceProvider>
                         ) : activeSection === "memory" ? (
