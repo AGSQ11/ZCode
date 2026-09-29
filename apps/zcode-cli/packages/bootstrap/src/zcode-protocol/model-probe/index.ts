@@ -81,12 +81,12 @@ export async function syncRegistryModels(
       version: context.deps.version,
     }));
   try {
-    const view = app.providerRegistry.getView();
-    const models = view.providers.flatMap((provider) =>
-      provider.models
-        .filter((model) => model.enabled)
-        .map((model) => ({ providerId: provider.providerId, modelId: model.modelId })),
-    );
+    // ZCodeApp 不暴露 providerRegistry；listModels 即 GUI picker 的注册表投影，
+    // 枚举的就是「当前 Environment 可执行的 provider/model 全集」。
+    const models = app.listModels().map((option) => ({
+      providerId: option.ref.providerId,
+      modelId: option.ref.modelId,
+    }));
     engine.pruneTo(models);
     await engine.registerModels(models);
   } finally {

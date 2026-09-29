@@ -83,7 +83,8 @@ export function createModelProbeEngine(deps: {
     return {
       revision,
       config: { ...config },
-      entries: [...entries.values()],
+      // 引擎内部条目是 readonly（含 readonly history）；协议视图是可变副本。
+      entries: [...entries.values()].map((item) => ({ ...item, history: [...item.history] })),
       probingProviderIds: [...probing.keys()],
     };
   }
