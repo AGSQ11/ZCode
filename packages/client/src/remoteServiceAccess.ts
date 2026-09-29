@@ -19,6 +19,7 @@ import {
   IFileWatcherService,
   IOAuthService,
   IModelSelectionService,
+  IModelProbeService,
   IProviderSettingsService,
   IProviderProvisioningTargetService,
   IUsageStatsService,
@@ -44,7 +45,7 @@ import {
 } from "@zcode/services";
 
 /**
- * RemoteServiceAccess — 通过 ChannelClient 自动创建类型安全的服务代理
+ * RemoteServiceAccess - 通过 ChannelClient 自动创建类型安全的服务代理
  *
  * 新增服务只需在此添加一个 getter。
  */
@@ -72,6 +73,7 @@ export class RemoteServiceAccess implements IServiceAccessor {
   readonly oauthService: IOAuthService;
   readonly providerSettingsService: IProviderSettingsService;
   readonly modelSelectionService: IModelSelectionService;
+  readonly modelProbeService: IModelProbeService;
   /** Host-only target proxy；不属于 IServiceAccessor，避免向 Renderer 暴露 Secret 写入接口。 */
   readonly providerProvisioningTargetService!: IProviderProvisioningTargetService;
   readonly usageStatsService: IUsageStatsService;
@@ -158,6 +160,9 @@ export class RemoteServiceAccess implements IServiceAccessor {
     );
     this.modelSelectionService = ProxyChannel.toService<IModelSelectionService>(
       channelClient.getChannel(IModelSelectionService.channelName),
+    );
+    this.modelProbeService = ProxyChannel.toService<IModelProbeService>(
+      channelClient.getChannel(IModelProbeService.channelName),
     );
     Object.defineProperty(this, "providerProvisioningTargetService", {
       value: ProxyChannel.toService<IProviderProvisioningTargetService>(

@@ -45,6 +45,10 @@ import type {
   ZCodePluginOperationProgressNotification,
   ZCodeProviderTestModelConnectivityParams,
   ZCodeProviderTestModelConnectivityResult,
+  ZCodeProviderModelProbeGetViewResult,
+  ZCodeProviderModelProbeProbeAllResult,
+  ZCodeProviderModelProbeUpdateConfigResult,
+  ZCodeModelProbeConfig,
   ZCodeUserInputRequestParams,
   ZCodeUserInputResponse,
   ZCodeSessionEvent,
@@ -322,6 +326,20 @@ export interface ZCodeAgentGenerateWorkspaceTextParams extends ZCodeAgentWorkspa
 
 export interface ZCodeAgentTestModelConnectivityParams extends ZCodeAgentWorkspaceTarget {
   selection: ZCodeProviderTestModelConnectivityParams["selection"];
+  signal?: AbortSignal;
+}
+
+export interface ZCodeAgentModelProbeTarget extends ZCodeAgentWorkspaceTarget {}
+
+export interface ZCodeAgentModelProbeGetViewParams extends ZCodeAgentWorkspaceTarget {
+  signal?: AbortSignal;
+}
+export interface ZCodeAgentModelProbeProbeAllParams extends ZCodeAgentWorkspaceTarget {
+  config?: Partial<ZCodeModelProbeConfig>;
+  signal?: AbortSignal;
+}
+export interface ZCodeAgentModelProbeUpdateConfigParams extends ZCodeAgentWorkspaceTarget {
+  config: ZCodeModelProbeConfig;
   signal?: AbortSignal;
 }
 
@@ -690,8 +708,17 @@ export interface IZCodeAgentService {
   testModelConnectivity(
     params: ZCodeAgentTestModelConnectivityParams,
   ): Promise<ZCodeProviderTestModelConnectivityResult>;
+  modelProbeGetView(
+    params: ZCodeAgentModelProbeGetViewParams,
+  ): Promise<ZCodeProviderModelProbeGetViewResult>;
+  modelProbeProbeAll(
+    params: ZCodeAgentModelProbeProbeAllParams,
+  ): Promise<ZCodeProviderModelProbeProbeAllResult>;
+  modelProbeUpdateConfig(
+    params: ZCodeAgentModelProbeUpdateConfigParams,
+  ): Promise<ZCodeProviderModelProbeUpdateConfigResult>;
   /**
-   * @deprecated：send 主路径已收敛 v4 sendText 命令。仅剩两个消费点——
+   * @deprecated：send 主路径已收敛 v4 sendText 命令。仅剩两个消费点--
    * adapter 带附件输入回退（待附件命令面落地后移除）与 zcodeSessionService
    * pass-through；新代码禁止回用。
    */

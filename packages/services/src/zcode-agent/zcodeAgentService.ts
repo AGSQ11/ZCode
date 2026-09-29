@@ -68,6 +68,9 @@ import {
   zcodeProviderRuntimeHeadersCancelledSchema,
   zcodeProviderRuntimeHeadersRequestParamsSchema,
   zcodeProviderTestModelConnectivityResultSchema,
+  zcodeProviderModelProbeGetViewResultSchema,
+  zcodeProviderModelProbeProbeAllResultSchema,
+  zcodeProviderModelProbeUpdateConfigResultSchema,
   zcodeOfficialMcpAuthHeadersRequestParamsSchema,
   summarizeOfficialMcpIdentityHeaders,
   zcodeProtocolEmptyResultSchema,
@@ -151,6 +154,9 @@ import type {
   ZCodeAgentInstallPluginParams,
   ZCodeAgentGenerateWorkspaceTextParams,
   ZCodeAgentTestModelConnectivityParams,
+  ZCodeAgentModelProbeGetViewParams,
+  ZCodeAgentModelProbeProbeAllParams,
+  ZCodeAgentModelProbeUpdateConfigParams,
   ZCodeAgentGoalParams,
   ZCodeAgentGrantWorkspaceHookTrustParams,
   ZCodeAgentInitializeResult,
@@ -402,7 +408,7 @@ const SESSION_SEND_OPTIONAL_COMPAT_FIELDS = new Set<SessionSendCompatField>([
 // onDynamicSessionEvent 建立上游订阅时若 getClient / sessionSubscribe 瞬时失败
 // （agent 进程刚启动、runtime 抛 "Session is not active" 竞态、transport 抖动），
 // 直接 .catch(() => {}) 静默吞掉且不重试的话，调用方（含 syncer shadow 订阅）会把
-// emitter.event 当作"订阅成功"缓存，永不重建——这条 session 的终态事件再也到不了，
+// emitter.event 当作"订阅成功"缓存，永不重建--这条 session 的终态事件再也到不了，
 // sqlite 停在旧状态、侧边栏 spinner 转不停。这里改为有限次指数退避重试，覆盖瞬时失败窗口。
 const SESSION_SUBSCRIBE_RETRY_BASE_DELAY_MS = 500;
 const SESSION_SUBSCRIBE_RETRY_MAX_DELAY_MS = 5_000;
@@ -478,7 +484,7 @@ function ensurePluginManagementWorkspacePath(): string {
 // runtime connects separately and reports via the `mcp.server.connected`/toolCount events. So a
 // createSession log line with mcpServerCount:0 is EXPECTED when zcode-cua is a CLI-config MCP server
 // (e.g. the product Helper broker path injected through the gated bootstrap env): the model still receives those
-// tools — the two numbers describe different channels, not a missing tool set. Verified on-machine:
+// tools - the two numbers describe different channels, not a missing tool set. Verified on-machine:
 // real kimi-k2.6 turns call mcp__zcode-cua__* tools (get_app_state/type/open_application, status
 // completed) in sessions whose createSession logged mcpServerCount:0.
 function getMcpServerCount(params: { mcpServers?: readonly unknown[] }): number {
@@ -499,7 +505,7 @@ function parseInvalidParamsIssues(error: unknown): unknown[] {
   if (
     errorLike.code !== -32602 ||
     typeof message !== "string" ||
-    (message !== "Invalid params" && !message.startsWith("Invalid params — "))
+    (message !== "Invalid params" && !message.startsWith("Invalid params - "))
   ) {
     return [];
   }
@@ -653,7 +659,7 @@ function buildSessionCreateParams(
       ? { offPeakToolEnabled: true }
       : {}),
     // 动态工作流灰度：同 Off-Peak 的下发形状，
-    // 关闭时不写字段——CLI 的缺省就是不注册那九个工具。
+    // 关闭时不写字段--CLI 的缺省就是不注册那九个工具。
     ...(params.dynamicWorkflowEnabled === true && !omittedFields.has("dynamicWorkflowEnabled")
       ? { dynamicWorkflowEnabled: true }
       : {}),
@@ -904,7 +910,7 @@ interface CreateZCodeAgentServiceOptions extends Omit<
    * 官方 Server MCP 身份头解析器。Agent 进程不持有用户身份权威，
    * 经 interaction/requestOfficialMcpAuthHeaders 向 host 索取本次请求的身份头。
    *
-   * 缺省时该请求一律返回 official_auth_unavailable，绝不降级为匿名请求——
+   * 缺省时该请求一律返回 official_auth_unavailable，绝不降级为匿名请求--
    * 例如 standalone CLI 没有 host auth port 的场景。
    */
   officialMcpAuthHeadersResolver?: {
@@ -920,7 +926,7 @@ interface CreateZCodeAgentServiceOptions extends Omit<
   };
   /**
    * 官方 MCP 可信 Origin 校验器。**host 是身份权威边界**，因此
-   * targetOrigin 的校验必须在这里执行，不能只依赖 agent adapter 的 fetch wrapper——那等于让
+   * targetOrigin 的校验必须在这里执行，不能只依赖 agent adapter 的 fetch wrapper--那等于让
    * 被审查方自己当审查者。desktop-attached remote 场景下 agent 跑在远端而 host 持有本地用户身份。
    *
    * 此校验约束凭据请求的目标 origin，不提供逐插件权限控制。
@@ -991,7 +997,7 @@ const OFF_PEAK_INTERNAL_ERROR_MESSAGE = "Internal off-peak service error";
 
 /**
  * offPeak/create、offPeak/list 的兜底 catch 不得把跨层异常文本（SQLite/文件路径/
- * 上游响应片段）原样回传协议——它会进入 CLI 日志与模型可见错误。原始错误只进服务端日志，
+ * 上游响应片段）原样回传协议--它会进入 CLI 日志与模型可见错误。原始错误只进服务端日志，
  * 对外固定稳定错误码 + 通用文案；业务失败分类仍走 respond({ok:false}) 不经此处。
  */
 async function respondOffPeakInternalError(
@@ -1102,7 +1108,7 @@ export function createZCodeAgentService(
   /**
    * 已经记过"首次发放官方身份头"审计日志的 (pluginId, mcpKey, workspaceKey)。
    *
-   * 存在理由：成功路径不能只记 debug——生产构建的最低级别是 Info，事后无法回答
+   * 存在理由：成功路径不能只记 debug--生产构建的最低级别是 Info，事后无法回答
    * "凭据被哪个插件取走过"。但每次 initialize / tools\_list / tools\_call 都会触发一次发放，
    * 全量记 info 就是消息量级的日志膨胀。折中：每个三元组只在本进程内首次发放时记一条 info，
    * 之后仍走 debug。审计线索到"哪个插件、哪个 workspace、什么时候第一次拿"这个粒度。
@@ -2292,7 +2298,7 @@ export function createZCodeAgentService(
         }
 
         // 官方 Server MCP 身份头：纯 RPC 中继，host 自动解析并响应。
-        // 不 emitSessionEvent、不进 pending map——该请求没有 UI 语义，renderer 不参与。
+        // 不 emitSessionEvent、不进 pending map--该请求没有 UI 语义，renderer 不参与。
         if (request.method === zcodeProtocolMethods.interactionRequestOfficialMcpAuthHeaders) {
           const parsed = zcodeOfficialMcpAuthHeadersRequestParamsSchema.safeParse(request.params);
           if (!parsed.success) {
@@ -2427,7 +2433,7 @@ export function createZCodeAgentService(
         }
 
         // browser-use：agent 的 agent.browsers.* 经 interaction/browserExecute 到达这里。
-        // 纯 RPC 中继——转发给 main（WebContentsView+CDP）执行后 respondResult，不 emitSessionEvent、
+        // 纯 RPC 中继--转发给 main（WebContentsView+CDP）执行后 respondResult，不 emitSessionEvent、
         // 不进 pending map（区别于 permission 的 UI 阻塞语义）。executor 缺省则 backend_unavailable。
         if (request.method === zcodeProtocolMethods.interactionBrowserExecute) {
           const parsed = zcodeBrowserExecuteParamsSchema.safeParse(request.params);
@@ -2902,7 +2908,7 @@ export function createZCodeAgentService(
    * stop/取消 RPC 超时或 watchdog 会回收 client/进程，但进程异步退出，
    * client.onClose 尚未触发时 activeClientsByWorkspaceKey 仍指向已 disposed 的 client。
    * 所有复用 active entry 的路径必须先经过本检查；disposed 时清理 stale entry 并返回 false，
-   * 让调用方重新拉起进程（start-if-needed）或按“无运行时”处理（existing-only）。
+   * 让调用方重新拉起进程（start-if-needed）或按"无运行时"处理（existing-only）。
    */
   function isReusableActiveClientEntry(
     params: ZCodeAgentWorkspaceTarget,
@@ -3101,7 +3107,7 @@ export function createZCodeAgentService(
     if (runtimePolicy === "existing-only") {
       const workspaceKey = resolveWorkspaceKey(params);
       const active = activeClientsByWorkspaceKey.get(workspaceKey);
-      // 观察者路径同样要拒绝 disposed 的 stale entry；清理后按“无运行时”处理，
+      // 观察者路径同样要拒绝 disposed 的 stale entry；清理后按"无运行时"处理，
       // 绝不为观察者拉起新进程（保持 existing-only 语义）。
       if (active && isReusableActiveClientEntry(params, active)) {
         active.workspace = params;
@@ -3134,7 +3140,7 @@ export function createZCodeAgentService(
   // 全局工作流的载体运行时选择：
   // 调用方只给 `{ scope: "global" }` 不带 workspace 时，先复用任一已活跃的**本地** runtime
   // （existing-only 语义：只看 activeClientsByWorkspaceKey，绝不为此拉起新进程），否则回落到
-  // 管理面 workspace——照 getPluginManagementClient 先例用专用 pluginProcessManager 拉一个控制面
+  // 管理面 workspace--照 getPluginManagementClient 先例用专用 pluginProcessManager 拉一个控制面
   // runtime。选它而非 getOrStartReadOnlyClient 的理由：workflows/* 是无会话、不依赖 provider/model
   // 就绪的 workspace 级方法，管理面进程正是为这种「不寄居真实项目」的控制面能力准备的，且不会因
   // 真实 workspace 生命周期被 watchdog 回收；getOrStartReadOnlyClient 反而会把这个合成 workspace
@@ -3257,7 +3263,7 @@ export function createZCodeAgentService(
    * 进程内固定。三点理由：
    *   1. 同一次判定同时喂给 workspace/updateDynamicWorkflowPolicy 和 session flag，两者不会
    *      出现"策略说开、create 说关"的裂口；
-   *   2. 判定落在 client 就绪路径上，不能每次建会话都等远端——3.12.2 已因此回归过一次；
+   *   2. 判定落在 client 就绪路径上，不能每次建会话都等远端--3.12.2 已因此回归过一次；
    *   3. 读取失败 fail-closed 且不再重试，避免离线时每条 create 都赔上一次请求超时；
    *      服务端翻转灰度按设计在下一个 Host 进程生效（provider 侧另有 1h 快照与 forceRefresh）。
    * 与 Off-Peak 不同：远程 workspace 同样可用，所以这里不看 workspaceIdentity / remoteSessionId。
@@ -3318,7 +3324,7 @@ export function createZCodeAgentService(
       };
     }
     if (payload.offPeakTaskId) {
-      // 闲时派发轮同型纵深——只 deny OffPeakCreate（OffPeakList 只读保留）。
+      // 闲时派发轮同型纵深--只 deny OffPeakCreate（OffPeakList 只读保留）。
       return {
         ...envelope,
         payload: {
@@ -3908,7 +3914,7 @@ export function createZCodeAgentService(
 
     async getPluginReferenceCatalog(params: ZCodeAgentPluginReferenceCatalogParams) {
       // Plugin 引用 catalog 必须打到持有 session 记录的 workspace agent client
-      // （getReadOnlyClient 优先复用 active client），不能走独立 plugin management 进程——
+      // （getReadOnlyClient 优先复用 active client），不能走独立 plugin management 进程--
       // 那个进程没有任何 session，session-owned catalog 会永远查不到。
       const client = await getReadOnlyClient(params);
       return requestPluginReferenceCatalog(client, {
@@ -4331,7 +4337,7 @@ export function createZCodeAgentService(
       });
       if (!claimed) {
         // single-flight 已拒绝重复运行时，旧的空成功返回会被 UI 误判为
-        // 新 run 已入队，导致每次重复点击都展示一次“已触发”。
+        // 新 run 已入队，导致每次重复点击都展示一次"已触发"。
         return { status: "duplicate" as const };
       }
       await dispatch(claimed);
@@ -4373,7 +4379,7 @@ export function createZCodeAgentService(
           )
           .catch((error: unknown) => {
             // 取消是 best-effort 控制面操作，失败不能覆盖调用方原本的 AbortError；
-            // 保留 debug 轨迹用于区分“本地停止等待”和“CLI 已收到取消”。
+            // 保留 debug 轨迹用于区分"本地停止等待"和"CLI 已收到取消"。
             logger.debug(undefined, "workspace 模型请求取消通知失败", {
               operationId,
               workspaceKey: resolveWorkspaceKey(params),
@@ -4423,6 +4429,39 @@ export function createZCodeAgentService(
           selection: params.selection,
         },
         zcodeProviderTestModelConnectivityResultSchema,
+        { signal: params.signal },
+      );
+    },
+
+    async modelProbeGetView(params: ZCodeAgentModelProbeGetViewParams) {
+      const client = await getClient(params);
+      return client.request(
+        zcodeProtocolMethods.providerModelProbeGetView,
+        { workspace: buildWorkspaceRef(params) },
+        zcodeProviderModelProbeGetViewResultSchema,
+        { signal: params.signal },
+      );
+    },
+
+    async modelProbeProbeAll(params: ZCodeAgentModelProbeProbeAllParams) {
+      const client = await getClient(params);
+      return client.request(
+        zcodeProtocolMethods.providerModelProbeProbeAll,
+        {
+          workspace: buildWorkspaceRef(params),
+          ...(params.config ? { config: params.config } : {}),
+        },
+        zcodeProviderModelProbeProbeAllResultSchema,
+        { signal: params.signal },
+      );
+    },
+
+    async modelProbeUpdateConfig(params: ZCodeAgentModelProbeUpdateConfigParams) {
+      const client = await getClient(params);
+      return client.request(
+        zcodeProtocolMethods.providerModelProbeUpdateConfig,
+        { workspace: buildWorkspaceRef(params), config: params.config },
+        zcodeProviderModelProbeUpdateConfigResultSchema,
         { signal: params.signal },
       );
     },
@@ -4994,7 +5033,7 @@ export function createZCodeAgentService(
           connectionId: connection.connectionId,
           clientMode: connection.clientMode,
           // 与 clientMode 同族的可信位（10 §3.1）：只由这里从连接的 clientHello 注入。
-          // 缺席即 CLI 按旧消费者发整键 patch，并先裁到旧界——重订阅、recovery、手机
+          // 缺席即 CLI 按旧消费者发整键 patch，并先裁到旧界--重订阅、recovery、手机
           // relay attachment 都走这一条 subscribe，所以这一处写全即可。
           ...(connection.workflowRunDeltas === true ? { workflowRunDeltas: true } : {}),
           // Bug 根因：冷订阅过去只传 sessionId，CLI 只能从历史 session.path 反推
@@ -5345,7 +5384,7 @@ export function createZCodeAgentService(
       );
     },
 
-    // 看板取数：limit 的缺省与钳制在 CLI 网关侧，这里只透传——两处各钳一次，
+    // 看板取数：limit 的缺省与钳制在 CLI 网关侧，这里只透传--两处各钳一次，
     // 同一个 limit 迟早会在两层上得到不同的页大小。
     async conversationWorkflowRunArtifactDataV4(
       params: ZCodeAgentConversationWorkflowRunArtifactDataParams,
@@ -5364,7 +5403,7 @@ export function createZCodeAgentService(
       );
     },
 
-    // 字节：一次一块（≤ 512 KiB），拼接归 renderer 的 hook。授权全在 CLI 侧——
+    // 字节：一次一块（≤ 512 KiB），拼接归 renderer 的 hook。授权全在 CLI 侧--
     // 这里传下去的 id 只用于在 journal 里查行，绝不成为路径。
     async conversationWorkflowRunArtifactReadV4(
       params: ZCodeAgentConversationWorkflowRunArtifactReadParams,
@@ -5611,7 +5650,7 @@ export function createZCodeAgentService(
     },
 
     // （CLI 重连重订）：进程换代直通 process manager；v4 订阅方（task-index
-    // syncer 等）据此重发 subscribe——订阅活在 CLI 进程内存，换代即静默失活。
+    // syncer 等）据此重发 subscribe--订阅活在 CLI 进程内存，换代即静默失活。
     onAgentRuntimeRestarted(listener) {
       return processManager.onRuntimeRestarted(listener);
     },

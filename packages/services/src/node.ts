@@ -1,5 +1,5 @@
 /* eslint-disable max-lines -- host process 服务注册和启动装配需要集中维护，拆散后会更难追踪依赖注入顺序 */
-// Node.js service implementations — NOT safe to import in browser code
+// Node.js service implementations - NOT safe to import in browser code
 import { randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -381,6 +381,11 @@ import {
   IModelSelectionService,
   IProviderSettingsService,
 } from "./model-provider/providerFacadeServices.js";
+import {
+  createModelProbeService,
+  IModelProbeService,
+} from "./model-probe/modelProbeService.js";
+import type { ZCodeAgentModelProbeTarget } from "./zcode-agent/zcodeAgent.js";
 import { createProviderSettingsConnectivityTester } from "./model-provider/providerSettingsConnectivity.js";
 import {
   createProviderProvisioningSource,
@@ -507,6 +512,7 @@ import {
   BIGMODEL_PROVIDER_ID,
   type ProviderFamilyDomain,
   type ServiceAuthorityMode,
+  type ZCodeModelProbeConfig,
   resolveRuntimeZCodeEndpointOrigin,
   type BrowserBackendDescriptor,
   type BrowserClientMode,
@@ -549,7 +555,7 @@ const CUA_PRODUCT_HELPER_AGENT_ENV_RETRY_MS = 30_000;
 // plenty of headroom. Runs off the agent-spawn critical path (see buildCuaProductHelperAgentEnv).
 const CUA_HELPER_HEALTH_TIMEOUT_MS = 30_000;
 // 有界 spawn grace：给正常的签名 Helper 冷启动一个短暂但现实的就绪窗口。实机上
-// Gatekeeper + SEA 启动通常需要 300–500ms，旧 250ms 会把健康首启误判为 BROKER_UNAVAILABLE。
+// Gatekeeper + SEA 启动通常需要 300-500ms，旧 250ms 会把健康首启误判为 BROKER_UNAVAILABLE。
 // 1s 后仍未就绪才 fail-closed，后台 startup 继续收敛；不会等待完整的 30s health budget。
 // helper 随后 ready 时由 reconcileRecoveredHelper 只清理后续 spawn admission marker，绝不触碰
 // 已有 Agent。绝不照搬 feat 的 10s caller wait。
@@ -699,7 +705,7 @@ export function shouldEnableDefaultCuaProductHelper(
     env?: NodeJS.ProcessEnv;
   } = {},
 ): boolean {
-  // CUA 已随正式版默认开启（isZCodeCuaInternalFeatureEnabled 默认 ON，仅显式 0/false/off 关闭；2026-08 注释更正——旧注释称默认关闭已过期）。显式开启后 macOS 使用既有产品 Helper，Windows 使用安装包内 runtime；
+  // CUA 已随正式版默认开启（isZCodeCuaInternalFeatureEnabled 默认 ON，仅显式 0/false/off 关闭；2026-08 注释更正--旧注释称默认关闭已过期）。显式开启后 macOS 使用既有产品 Helper，Windows 使用安装包内 runtime；
   // 两端都保持按需启动。关闭时不创建 host、不探测资源、不产生子进程或权限提示。
   const env = options.env ?? process.env;
   if (!isZCodeCuaInternalFeatureEnabled(env)) return false;
@@ -766,7 +772,7 @@ export async function runCuaScreenCaptureReadinessProbe(
 /**
  * Screen Recording 的展示态取值：优先短命 Helper 读到的 TCC 真值，拿不到才沿用常驻 Helper 的报告。
  *
- * 为什么不能直接信常驻 Helper：macOS 撤销 Screen Recording 对**已运行进程**不生效 ——
+ * 为什么不能直接信常驻 Helper：macOS 撤销 Screen Recording 对**已运行进程**不生效 --
  * 进程在退出前保留已获得的录屏能力，`CGPreflightScreenCaptureAccess()` 也继续返回撤销前的值。
  * 于是用户在系统设置里关掉授权后，常驻 broker Helper 会一直报 granted 直到它自己重启，
  * 设置页跟着显示「已授权」；而下一次 Helper 重启 CUA 就真的不可用了。
@@ -1131,7 +1137,7 @@ export async function buildCuaProductHelperAgentEnv(
         await host.checkHealth(CUA_PRODUCT_HELPER_SPAWN_READY_DEADLINE_MS);
         clearCuaProductHelperAgentEnvUnavailable(host);
       } catch {
-        // helper 仍在恢复（冷启动 / 轮换在途）——不阻塞，交给下一次 demand boundary。
+        // helper 仍在恢复（冷启动 / 轮换在途）--不阻塞，交给下一次 demand boundary。
       }
     }
     if (hasCuaProductHelperAgentEnvUnavailable(host)) {
@@ -1233,7 +1239,7 @@ export async function buildCuaProductHelperAgentEnv(
     const isCallerTimeout = isCuaHelperError(error) && error.code === "caller_timeout";
     if (isCallerTimeout) {
       // 冷启动 rendezvous：Helper 还在起，但 host 已经占住 final socket 并预留了 tuple。
-      // 此时下发的凭据是**可用**的——final 上是 host 占位，未验签的 Helper 绑在 .pending
+      // 此时下发的凭据是**可用**的--final 上是 host 占位，未验签的 Helper 绑在 .pending
       // 上够不到它；client 连上占位会被立刻 destroy 并按 broker_unavailable 退避重试，
       // Helper 验证通过后 host 原子 rename 让渡，重试自然落到真 Helper 上。
       //
@@ -1260,7 +1266,7 @@ export async function buildCuaProductHelperAgentEnv(
     );
     return {
       [BROKER_UNAVAILABLE_ENV]: isCallerTimeout
-        ? // 冷启动仍在后台跑——"warming up"，reconcileRecoveredHelper 会在 helper ready 后
+        ? // 冷启动仍在后台跑--"warming up"，reconcileRecoveredHelper 会在 helper ready 后
           // 只清理后续 spawn marker。
           "broker_unavailable: helper broker warming up"
         : `broker_unavailable: ${cuaHelperStartErrorDetail(error)}`,
@@ -1684,14 +1690,14 @@ export function createLocalServices(options: {
   // 的 session、进程与 MCP stream 保持不变。
   const cuaProductHelperWorkspaceRegistry = new CuaProductHelperWorkspaceRegistry();
   // createDefaultCuaProductHelper() 在 zcodeAgentService 存在之前就要组装 resolver，
-  // 但"是否有活跃 turn"这个信号只有 zcodeAgentService 建好之后才能查询。用前向引用占位——resolver 真正
+  // 但"是否有活跃 turn"这个信号只有 zcodeAgentService 建好之后才能查询。用前向引用占位--resolver 真正
   // 调用 hasActiveTurn() 发生在后续某次 resolveMcpServers（异步），那时 hasActiveTurnRef 早已被赋值。
   // 先用前向引用连接 agent service 的 CUA turn tracker，避免在活跃 CUA 请求中途重启 Helper；
   // service 创建完成后再赋值。Helper recovery 始终不能回收 Agent。
   let hasActiveTurnRef: (() => boolean) | undefined;
   const isCuaEnabledForContext = (context?: CuaProductMcpServerResolverContext): boolean =>
     // 保留 main 原有 gate 行为（避免回归）：dev/internal 特性开启时（ZCODE_CUA_DEV_MODE=1 或
-    // ZCODE_CUA_PRODUCT_HELPER=1）即视为启用，不依赖 config.json 显式 enable——main 的 bootstrap
+    // ZCODE_CUA_PRODUCT_HELPER=1）即视为启用，不依赖 config.json 显式 enable--main 的 bootstrap
     // 用 isZCodeCuaInternalFeatureEnabled 门控 bundled plugin，与 feat 的 workspace enablement 不同。
     // 生产路径（dev mode off）回落到官方插件 workspace enablement 判定（与 feat 一致）。
     isZCodeCuaInternalFeatureEnabled(process.env) ||
@@ -1790,7 +1796,7 @@ export function createLocalServices(options: {
   // 行为等价性（别误读成安全加固）：上游是 `COMPILED_LOCAL_DEVELOPMENT_RUNTIME &&
   // ZCODE_RUNTIME_ENV!=="production"`，而那个编译期常量只有 scripts/build-cua-helper-app.mjs
   // 会用 define 折叠（Helper bundle）；desktop host bundle 没有该 define，于是回退成
-  // `process.env.NODE_ENV !== "production"` —— 正是复制品写的那一项。所以在**当前**打包形态下
+  // `process.env.NODE_ENV !== "production"` -- 正是复制品写的那一项。所以在**当前**打包形态下
   // 两者逐字等价，关门靠的是 ZCODE_RUNTIME_ENV=production（打包态显式注入且不传 NODE_ENV）。
   //
   // 换成上游的收益是消除漂移面：折叠点、因子个数与 fail-closed 方向都由上游一处决定，
@@ -1803,7 +1809,7 @@ export function createLocalServices(options: {
     const { execFile } = await import("node:child_process");
     const { promisify } = await import("node:util");
     const socketPath = resolveBrokerSocketPath();
-    // standaloneHelperCandidatePaths 未在上游 exports 白名单——此处按同一规则枚举安装候选
+    // standaloneHelperCandidatePaths 未在上游 exports 白名单--此处按同一规则枚举安装候选
     //（dev-desktop → dev/ 前缀；app 名一律取 helperConstants，不写字面量）。
     const home = process.env.ZCODE_HOME?.trim() || join(homedir(), ".zcode");
     const baseRoot = join(home, "computer-use");
@@ -1865,7 +1871,7 @@ export function createLocalServices(options: {
   });
   // 启动期就把 PiP 投递链的接线状态写出来。dev 实测 PiP 事件一条都没投，而
   // 「enabled=false」与「lifecycle 回调没挂（tracker 整体 undefined、accept 全程 no-op）」
-  // 这两种成因在运行期都不产生任何日志，只能靠这行在启动时分辨——重启即可判定，
+  // 这两种成因在运行期都不产生任何日志，只能靠这行在启动时分辨--重启即可判定，
   // 不必先跑一轮 CUA。scope 沿用 cua-pip-session：已验证该 logger 的 info 会进宿主日志。
   createServiceLogger("cua-pip-session").info(undefined, "[cua-pip-session] wiring resolved", {
     enabled: cuaPipSessionEnabled,
@@ -1970,7 +1976,7 @@ export function createLocalServices(options: {
         }
         // 真实 screen-capture 探针：TCC screen_recording === "granted" 只说明系统记录了授权，并不保证
         // WindowServer 已对本进程放行像素（wallpaper-frame / SR-not-live 背离）。只有真的抓到非空像素
-        // 才算 screen 端到端可用——UI 的"就绪/自动关闭"据此判定。fail-closed：探测抛错/超时一律 false。
+        // 才算 screen 端到端可用--UI 的"就绪/自动关闭"据此判定。fail-closed：探测抛错/超时一律 false。
         // 用预检后的 state 做门控：预检已判 denied 时没有必要再花一次抓屏。
         const screenCaptureProbeOk = await runCuaScreenCaptureReadinessProbe(
           host,
@@ -2072,7 +2078,7 @@ export function createLocalServices(options: {
     },
   });
   // OffPeakTaskService 单例在下方 DI register IIFE 中创建（晚于 agent service）；
-  // 用前向引用 holder 惰性绑定——offPeak/create 协议请求只会发生在服务集合装配完成后。
+  // 用前向引用 holder 惰性绑定--offPeak/create 协议请求只会发生在服务集合装配完成后。
   let offPeakTaskServiceForAgent: OffPeakTaskService | undefined;
   // desktop-attached-remote 装配不暴露 Off-Peak 工具面（远程不在支持范围）。
   const offPeakToolWiring =
@@ -2091,7 +2097,7 @@ export function createLocalServices(options: {
     authorizeLocalMediaPreviewPath: options?.authorizeLocalMediaPreviewPath,
     ...offPeakToolWiring,
     // 动态工作流灰度：与 Off-Peak 不同，
-    // 这里不按 serviceAuthorityMode 裁剪——SSH/WSL/Docker 的 desktop-attached-remote Host
+    // 这里不按 serviceAuthorityMode 裁剪--SSH/WSL/Docker 的 desktop-attached-remote Host
     // 是它自己那些 workspace 的唯一裁决者，灰度开启时远程 workspace 同样提供工作流。
     resolveDynamicWorkflowClientConfig: () =>
       codingPlanSubscriptionService.getDynamicWorkflowClientConfig(),
@@ -2118,7 +2124,7 @@ export function createLocalServices(options: {
     }),
     // host 是身份权威边界：provenance/origin 必须在这里再校验一次，不能只依赖 agent
     // adapter 的 fetch wrapper。判定实现与 CLI 侧共用 @zcode/shared 的同一份，避免分叉。
-    // origin 解析复用 resolveCurrentZCodeEndpointOrigin——与闲时任务同口径（含 settings
+    // origin 解析复用 resolveCurrentZCodeEndpointOrigin--与闲时任务同口径（含 settings
     // 覆盖），否则会出现"闲时任务能连、官方 MCP 连不上"。
     // dev 开关必须同样传入，否则本地自测会被 host 单方面拒绝。
     officialMcpTrustedOrigins: createOfficialMcpTrustedOriginRegistry({
@@ -2155,7 +2161,7 @@ export function createLocalServices(options: {
       // 与 helper 创建同一个门控（isCuaEnabledForContext：dev/internal 特性 OR 官方插件 enablement），
       // 避免 dev mode 下 helper 建了但 resolveSpawnEnv 漏注入 broker env 的割裂。
       const cuaPluginEnabled = isCuaEnabledForContext(context);
-      // 懒启动：darwin 上 spawn 绝不 acquire 拉起 Helper——已有 host（peek，比如刚走过
+      // 懒启动：darwin 上 spawn 绝不 acquire 拉起 Helper--已有 host（peek，比如刚走过
       // 授权流）则复用其 tuple；否则只注入稳定 socket，SDK 首次 CUA 调用自行拉起
       // （宿主启动/spawn 均不使 Helper 常驻）。win32 保留 acquire（token 模式）。
       const peekedHelper = defaultCuaProductHelperLifecycle.peek()?.helper;
@@ -2179,7 +2185,7 @@ export function createLocalServices(options: {
         // （其校验方就是 host，host 缺席时无意义）。SDK ensureBrokerAvailable 负责拉起。
         // pluginAuthority 是 agent 进程内的 config-provenance 随机数（bootstrap 捕获后写进
         // node_repl 配置 env，core 比对两者证明该配置出自本 bootstrap 而非用户配置文件）；
-        // 它不需要 host——托管态由 host 铸造，懒启动态在此按 spawn 铸造，语义与校验完全一致。
+        // 它不需要 host--托管态由 host 铸造，懒启动态在此按 spawn 铸造，语义与校验完全一致。
         cuaProductHelperEnv = {
           [BROKER_SOCKET_ENV]: resolveBrokerSocketPath(),
           [ZCODE_CUA_PLUGIN_AUTHORITY_ENV_KEY]: randomBytes(16).toString("hex"),
@@ -2288,7 +2294,7 @@ export function createLocalServices(options: {
   const defaultCuaProductMcpServerResolver = createDynamicCuaProductMcpServerResolver({
     isPluginEnabled: (context) => isCuaEnabledForContext(context),
     getResolver: async () => {
-      // peek-only——resolver 属托管 host 体系，host 未建时返回 undefined（懒启动下
+      // peek-only--resolver 属托管 host 体系，host 未建时返回 undefined（懒启动下
       // CUA 经 node_repl + 稳定 socket，不依赖此 resolver）；绝不在此 acquire。
       const helper = defaultCuaProductHelperLifecycle.peek()?.helper;
       return helper && isDefaultCuaProductHelperCurrent(helper) ? helper.resolver : undefined;
@@ -2575,7 +2581,7 @@ export function createLocalServices(options: {
     // RemoteServiceAccess 仍会请求该频道，导致本地候选枚举超时、远端同步无法开始。
     .register(IPluginSyncService, pluginSyncService)
     .register(IPluginsService, createPluginsService({ isDesktopRuntime: true }))
-    // 设置页插件管理薄服务——plugins/* 旧协议词的 host 侧唯一消费点。
+    // 设置页插件管理薄服务--plugins/* 旧协议词的 host 侧唯一消费点。
     .register(IPluginManagementService, createPluginManagementService({ zcodeAgentService }))
     .register(ISubagentsService, subagentsService)
     .register(ICommandsService, createCommandsService({ isDesktopRuntime: true }))
@@ -2608,7 +2614,7 @@ export function createLocalServices(options: {
   registerHostApiNetworkTransportForDispose(services, hostApiNetworkTransport);
   // disposer 注册完成后才排预热。若 createLocalServices 中途抛错，不能留下一个无人持有、却会在当前
   // 调用栈结束后才创建的高权限 Helper；若返回后立即 dispose，terminal fence 会先于 acquire 生效。
-  // Helper 懒启动：不预热——Helper 由 SDK 首次 CUA 调用拉起（spawn env 注入
+  // Helper 懒启动：不预热--Helper 由 SDK 首次 CUA 调用拉起（spawn env 注入
   // 稳定 socket），或用户显式授权流（restartHelper）拉起。启动即零 Helper 常驻。
 
   accountRequestAuthServices.set(services, accountRequestAuthService);
@@ -2619,7 +2625,34 @@ export function createLocalServices(options: {
   providerProvisioningTriggerDisposers.set(services, providerProvisioningDisposers);
   services
     .register(IProviderSettingsService, providerRuntime.providerSettings)
-    .register(IModelSelectionService, providerRuntime.modelSelection);
+    .register(IModelSelectionService, providerRuntime.modelSelection)
+    .register(
+      IModelProbeService,
+      createModelProbeService({
+        request: async (method, params, parse) => {
+          const { workspace, ...rest } = (params as { workspace: ZCodeAgentModelProbeTarget }) ?? {};
+          switch (method) {
+            case "provider/modelProbeGetView": {
+              const result = await zcodeAgentService.modelProbeGetView(workspace);
+              return parse(result);
+            }
+            case "provider/modelProbeProbeAll": {
+              const { config } = rest as { config?: Partial<ZCodeModelProbeConfig> };
+              const result = await zcodeAgentService.modelProbeProbeAll({ ...workspace, config });
+              return parse(result);
+            }
+            case "provider/modelProbeUpdateConfig": {
+              const { config } = rest as { config: ZCodeModelProbeConfig };
+              const result = await zcodeAgentService.modelProbeUpdateConfig({ ...workspace, config });
+              return parse(result);
+            }
+            default:
+              throw new Error(`Unknown model probe method: ${method}`);
+          }
+        },
+        target: { workspacePath: options?.zcodeAgentSpawnFallbackCwd ?? process.cwd() },
+      }),
+    );
   if (isDesktopAttachedRemote || options.providerProvisioningTargetEnabled === true) {
     services.register(
       IProviderProvisioningTargetService,
@@ -2737,7 +2770,7 @@ function readTelemetryOAuthUserId(rawUserInfo: string | null): string {
 export function disposeServiceResources(services: ServiceCollection): void {
   // host process 退出前以前没有统一遍历本地服务做资源回收，
   // terminal/task wrapper 这类会拉起子进程的服务只能等宿主进程自己结束，时序上可能留下短暂残留。
-  // 这里集中调用各服务的本地 disposeAll 钩子，把“退出 app = 回收所有托管资源”落成机械动作。
+  // 这里集中调用各服务的本地 disposeAll 钩子，把"退出 app = 回收所有托管资源"落成机械动作。
   const disposableServices = [
     services.getOptional(ITerminalService),
     services.getOptional(IZCodeTaskService),

@@ -10,6 +10,12 @@ export {
   type ProviderSettingsView,
 } from "./model-provider/providerFacadeServices.js";
 export {
+  IModelProbeService,
+  type IModelProbeService as IModelProbeServiceShape,
+  createModelProbeService,
+  type ModelProbeServiceDeps,
+} from "./model-probe/modelProbeService.js";
+export {
   createAccountRequestAuthService,
   type IAccountRequestAuthService,
   type AccountRequestAuthInput,
@@ -54,28 +60,28 @@ export {
   type IConversationTelemetryService,
 } from "./conversation-telemetry/conversationTelemetry.js";
 
-// File service — IFileService is both a type (interface) and value (descriptor)
+// File service - IFileService is both a type (interface) and value (descriptor)
 export { IFileService } from "./file/file.js";
 export { IMediaPreviewService } from "./media-preview/mediaPreview.js";
 export type { MediaPreviewPreparation } from "./media-preview/mediaPreview.js";
 
-// Git service — IGitService is both a type (interface) and value (descriptor)
+// Git service - IGitService is both a type (interface) and value (descriptor)
 export { IGitService } from "./git/git.js";
 export { IGitCheckpointService } from "./git/gitCheckpoint.js";
 
-// System service — ISystemService is both a type (interface) and value (descriptor)
+// System service - ISystemService is both a type (interface) and value (descriptor)
 export { ISystemService } from "./system/system.js";
 
-// Terminal service — ITerminalService is both a type (interface) and value (descriptor)
+// Terminal service - ITerminalService is both a type (interface) and value (descriptor)
 export { ITerminalService } from "./terminal/terminal.js";
 
-// Setting service — ISettingService is both a type (interface) and value (descriptor)
+// Setting service - ISettingService is both a type (interface) and value (descriptor)
 export { ISettingService } from "./setting/setting.js";
 
-// Credential service — ICredentialService is both a type (interface) and value (descriptor)
+// Credential service - ICredentialService is both a type (interface) and value (descriptor)
 export { ICredentialService } from "./credential/credential.js";
 
-// Broadcast service — IBroadcastService is both a type (interface) and value (descriptor)
+// Broadcast service - IBroadcastService is both a type (interface) and value (descriptor)
 export { IBroadcastService } from "./broadcast/broadcast.js";
 
 // Onboarding 完成记录服务（本地持久化，后续上传服务器）
@@ -94,7 +100,7 @@ export type {
   BroadcastMessage,
 } from "./broadcast/broadcast.js";
 
-// ZCode task wrapper service — task 列表/置顶/归档等 app 侧包装状态入口。
+// ZCode task wrapper service - task 列表/置顶/归档等 app 侧包装状态入口。
 export { IZCodeTaskService } from "./session/zcodeTaskService.js";
 export type {
   ZCodeArchivedTaskDeletionResult,
@@ -133,7 +139,7 @@ export type {
   WindowHostControllerTaskListResult,
 } from "./window-controller/windowController.js";
 
-// ZCode agent service — IZCodeAgentService is both a type (interface) and value (descriptor)
+// ZCode agent service - IZCodeAgentService is both a type (interface) and value (descriptor)
 export {
   IZCodeAgentService,
   type ZCodeAgentLocalRuntimeChildProcesses,
@@ -177,7 +183,7 @@ export type {
   ZCodeAgentWorkspaceTarget,
 } from "./zcode-agent/zcodeAgent.js";
 
-// ZCode session service — app-facing session facade without ZCode Agent naming.
+// ZCode session service - app-facing session facade without ZCode Agent naming.
 export { IZCodeSessionService } from "./zcode-session/zcodeSession.js";
 export type {
   ZCodeSessionCreateParams,
@@ -196,7 +202,7 @@ export type {
   ZCodeSessionWorkspaceTarget,
 } from "./zcode-session/zcodeSession.js";
 
-// Bots service — IBotsService is both a type (interface) and value (descriptor).
+// Bots service - IBotsService is both a type (interface) and value (descriptor).
 export { IBotsService } from "./bots/bots.js";
 export type {
   BotBindCodeResult,
@@ -206,10 +212,10 @@ export type {
   BotTestResult,
 } from "./bots/bots.js";
 
-// Hooks service — IHooksService is both a type (interface) and value (descriptor).
+// Hooks service - IHooksService is both a type (interface) and value (descriptor).
 export { IHooksService } from "./hooks/hooks.js";
 
-// Memory service — IMemoryService is both a type (interface) and value (descriptor).
+// Memory service - IMemoryService is both a type (interface) and value (descriptor).
 export {
   IMemoryService,
   PROJECT_MEMORY_FILE_CHANGED_ERROR_CODE,
@@ -219,19 +225,19 @@ export type { ProjectMemoryFileSummary, ProjectMemoryWorkspaceSummary } from "./
 
 export type { SessionRealtimePort } from "./session/sessionRealtimePort.js";
 
-// FileWatcher service — IFileWatcherService is both a type (interface) and value (descriptor)
+// FileWatcher service - IFileWatcherService is both a type (interface) and value (descriptor)
 export { IFileWatcherService } from "./fileWatcher/fileWatcher.js";
 
-// OAuth service — IOAuthService is both a type (interface) and value (descriptor)
+// OAuth service - IOAuthService is both a type (interface) and value (descriptor)
 export { IOAuthService } from "./oauth/oauth.js";
 
-// UsageStats service — IUsageStatsService is both a type (interface) and value (descriptor)
+// UsageStats service - IUsageStatsService is both a type (interface) and value (descriptor)
 export { IUsageStatsService } from "./usage-stats/usageStats.js";
 
 // Storage（资源管理器「存储」tab）：数据类型在 @zcode/shared；这里只导出服务接口与卷分组纯函数
 export type { IStorageService } from "./storage/contract.js";
 
-// CodingPlanSubscription service — ICodingPlanSubscriptionService is both a type (interface) and value (descriptor)
+// CodingPlanSubscription service - ICodingPlanSubscriptionService is both a type (interface) and value (descriptor)
 export {
   ICodingPlanSubscriptionService,
   type OffPeakClientConfig,
@@ -249,7 +255,7 @@ export { isValidCronExpr } from "./session/automationCronValidation.js";
 export { IOffPeakTaskService } from "./session/offPeakTask.js";
 export type { OffPeakUpdateTaskParams } from "./session/offPeakTask.js";
 
-// Skills service — ISkillsService is both a type (interface) and value (descriptor)
+// Skills service - ISkillsService is both a type (interface) and value (descriptor)
 export { ISkillsService } from "./skills/skills.js";
 export { ISkillSyncService } from "./skill-sync/skillSync.js";
 export { IMcpSyncService } from "./mcp-sync/mcpSync.js";
@@ -269,15 +275,15 @@ export {
   type CuaPipSessionService,
 } from "./cua-permission-broker/cuaPipSession.js";
 
-// Plugins service — IPluginsService is both a type (interface) and value (descriptor)
+// Plugins service - IPluginsService is both a type (interface) and value (descriptor)
 export { IPluginsService } from "./plugins/plugins.js";
 // 设置页插件管理薄服务（UI 平台能力面不再直触 zcodeAgentService）
 export { IPluginManagementService } from "./plugins/pluginManagement.js";
 
-// Subagents service — ISubagentsService is both a type (interface) and value (descriptor)
+// Subagents service - ISubagentsService is both a type (interface) and value (descriptor)
 export { ISubagentsService } from "./subagents/subagents.js";
 
-// Commands service — ICommandsService is both a type (interface) and value (descriptor)
+// Commands service - ICommandsService is both a type (interface) and value (descriptor)
 export { ICommandsService } from "./commands/commands.js";
 
 export { ISettingsSyncService } from "./settings-sync/settingsSync.js";
