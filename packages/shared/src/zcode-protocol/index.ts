@@ -24,6 +24,12 @@ import { z } from "zod";
 export * from "../process-diagnostic.js";
 import { errorAttributionSchema } from "../zcode-protocol-v4/snapshot.js";
 import { modelSelectionSchema } from "../model-selection.js";
+// 模型健康探测协议与 shared/model-probe 的账本类型共享同一枚举值表，避免两处漂移。
+import {
+  MODEL_PROBE_HISTORY_LIMIT,
+  MODEL_PROBE_SOURCES,
+  MODEL_PROBE_STATUSES,
+} from "../model-probe.js";
 import { completeModelPropertiesDataSchema } from "../model-config.js";
 import { accountProviderUnavailableReasonSchema } from "../account-provider-state.js";
 import { modelExecutionSchema } from "../model-execution.js";
@@ -2145,70 +2151,87 @@ export type ZCodeProviderTestModelConnectivityResult = z.infer<
   typeof zcodeProviderTestModelConnectivityResultSchema
 >;
 
-// 模型健康探测协议：wire 结构镜像 shared/model-probe 的账本类型，字段名与枚举值保持一致；
+// 模型健康探测协议：wire 结构镜像 shared/model-probe 的账本类型，枚举值表共享单一定义源；
 // entry 的 history 使用带 source 的 outcome 记录，对应 ModelProbeOutcomeRecord。
-export const zcodeModelProbeKeySchema = z.object({
-  providerId: z.string().min(1),
-  modelId: z.string().min(1),
-});
+export const zcodeModelProbeKeySchema = z
+  .object({
+    providerId: nonEmptyString,
+    modelId: nonEmptyString,
+  })
+  .strict();
 
-export const zcodeModelProbeOutcomeSchema = z.object({
-  ok: z.boolean(),
-  checkedAt: z.number(),
-  latencyMs: z.number().optional(),
-  ttftMs: z.number().optional(),
-  error: z.string().optional(),
-  source: z.enum(["manual-probe", "observed-failure", "observed-success", "scheduled-recheck"]),
-});
+export const zcodeModelProbeOutcomeSchema = z
+  .object({
+    ok: z.boolean(),
+    checkedAt: z.number().int().nonnegative(),
+    latencyMs: z.number().optional(),
+    ttftMs: z.number().optional(),
+    error: z.string().optional(),
+    source: z.enum(MODEL_PROBE_SOURCES),
+  })
+  .strict();
 
-export const zcodeModelProbeEntrySchema = z.intersection(
-  zcodeModelProbeKeySchema,
-  z.object({
-    status: z.enum(["alive", "dead", "unknown"]),
-    lastCheckedAt: z.number().optional(),
+export const zcodeModelProbeEntrySchema = zcodeModelProbeKeySchema
+  .extend({
+    status: z.enum(MODEL_PROBE_STATUSES),
+    lastCheckedAt: z.number().int().nonnegative().optional(),
     latencyMs: z.number().optional(),
     ttftMs: z.number().optional(),
     lastError: z.string().optional(),
     attemptCount: z.number().int().nonnegative(),
-    nextRetryAt: z.number().optional(),
-    history: z.array(zcodeModelProbeOutcomeSchema),
-  }),
-);
+    nextRetryAt: z.number().int().nonnegative().optional(),
+    // 与 model-probe 的有界历史一致：最新 MODEL_PROBE_HISTORY_LIMIT 条。
+    history: z.array(zcodeModelProbeOutcomeSchema).max(MODEL_PROBE_HISTORY_LIMIT),
+  })
+  .strict();
 
-export const zcodeModelProbeConfigSchema = z.object({
-  probeTimeoutMs: z.number().int().min(1_000).max(120_000),
-  concurrency: z.number().int().min(1).max(16),
-  deadRecheckIntervalMs: z
-    .number()
-    .int()
-    .min(60_000)
-    .max(24 * 60 * 60 * 1000),
-});
+export const zcodeModelProbeConfigSchema = z
+  .object({
+    probeTimeoutMs: z.number().int().min(1_000).max(120_000),
+    concurrency: z.number().int().min(1).max(16),
+    deadRecheckIntervalMs: z
+      .number()
+      .int()
+      .min(60_000)
+      .max(24 * 60 * 60 * 1000),
+  })
+  .strict();
 
-export const zcodeModelProbeViewSchema = z.object({
-  revision: z.number(),
-  config: zcodeModelProbeConfigSchema,
-  entries: z.array(zcodeModelProbeEntrySchema),
-  probingProviderIds: z.array(z.string()),
-});
+export const zcodeModelProbeViewSchema = z
+  .object({
+    revision: z.number(),
+    config: zcodeModelProbeConfigSchema,
+    entries: z.array(zcodeModelProbeEntrySchema),
+    probingProviderIds: z.array(z.string()),
+  })
+  .strict();
 
-export const zcodeProviderModelProbeGetViewParamsSchema = z.object({
-  workspace: zcodeWorkspaceRefSchema,
-});
+export const zcodeProviderModelProbeGetViewParamsSchema = z
+  .object({
+    workspace: zcodeWorkspaceRefSchema,
+  })
+  .strict();
 export const zcodeProviderModelProbeGetViewResultSchema = zcodeModelProbeViewSchema;
 
-export const zcodeProviderModelProbeProbeAllParamsSchema = z.object({
-  workspace: zcodeWorkspaceRefSchema,
-  config: zcodeModelProbeConfigSchema.partial().optional(),
-});
-export const zcodeProviderModelProbeProbeAllResultSchema = z.object({
-  started: z.boolean(),
-});
+export const zcodeProviderModelProbeProbeAllParamsSchema = z
+  .object({
+    workspace: zcodeWorkspaceRefSchema,
+    // 部分覆盖项：zod 4 的 .partial() 保留 strict，键名拼错的覆盖不会静默失效。
+    config: zcodeModelProbeConfigSchema.partial().optional(),
+  })
+  .strict();
+export const zcodeProviderModelProbeProbeAllResultSchema = z
+  .object({
+    started: z.boolean(),
+  })
+  .strict();
 
-export const zcodeProviderModelProbeUpdateConfigParamsSchema = z.object({
-  workspace: zcodeWorkspaceRefSchema,
-  config: zcodeModelProbeConfigSchema,
-});
+export const zcodeProviderModelProbeUpdateConfigParamsSchema = z
+  .object({
+    workspace: zcodeWorkspaceRefSchema,
+    config: zcodeModelProbeConfigSchema,
+  })
+  .strict();
 export const zcodeProviderModelProbeUpdateConfigResultSchema = zcodeModelProbeViewSchema;
 
 export type ZCodeModelProbeKey = z.infer<typeof zcodeModelProbeKeySchema>;

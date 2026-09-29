@@ -1,7 +1,17 @@
 // 模型健康探测（dsh-model-probe 的原生移植）：类型与健康状态机均为纯函数，
 // 供 bootstrap 引擎与 UI 展示层共用；本文件不依赖任何运行时或进程 API。
 
-export type ModelProbeStatus = "alive" | "dead" | "unknown";
+// 状态与来源的枚举值表共享给协议层（z.enum 复用同一数组），避免两处定义漂移。
+export const MODEL_PROBE_STATUSES = ["alive", "dead", "unknown"] as const;
+
+export type ModelProbeStatus = (typeof MODEL_PROBE_STATUSES)[number];
+
+export const MODEL_PROBE_SOURCES = [
+  "manual-probe",
+  "observed-failure",
+  "observed-success",
+  "scheduled-recheck",
+] as const;
 
 export interface ModelProbeKey {
   readonly providerId: string;
@@ -18,7 +28,7 @@ export interface ModelProbeOutcome {
 }
 
 export interface ModelProbeOutcomeRecord extends ModelProbeOutcome {
-  readonly source: "manual-probe" | "observed-failure" | "observed-success" | "scheduled-recheck";
+  readonly source: (typeof MODEL_PROBE_SOURCES)[number];
 }
 
 export interface ModelProbeEntry extends ModelProbeKey {
