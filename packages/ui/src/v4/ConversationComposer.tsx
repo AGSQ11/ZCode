@@ -6,7 +6,7 @@ import { getLocalTtftObserver } from "@/v4/telemetry/localTtftObserver.js";
  * 壳：ChatPromptEditor（Lexical 编辑器 + 动作菜单 + 拖拽反馈 + sticky 底座视觉），
  * 附件预览网格/大图预览/错误提示区一并提供。
  *
- * 芯：全新 v4 wiring——
+ * 芯：全新 v4 wiring--
  * - 路由/状态一律读 v4 投影 snapshot.inputRouting / control / config / usage；
  * - 发送键状态机对齐旧 UI：canSend（有文本或附件+路由允许）/ pending spinner /
  *   running+空草稿 → Stop（v4 stop 命令）/ 暂停队列（choice）→ 发送后弹清空/保留确认框；
@@ -463,7 +463,7 @@ interface ConversationComposerProps {
   externalTextInsertRequest?: ExternalTextInsertRequest | null;
   onExternalTextInsertApplied?: (requestId: number) => void;
   /**
-   * 队列“编辑”在 delete ACK 后把完整未来意图取回输入框。
+   * 队列"编辑"在 delete ACK 后把完整未来意图取回输入框。
    * requestId + session/workspace binding 保证幂等且不会串写其他 task。
    */
   composerRestoreRequest?: ComposerRestoreRequest | null;
@@ -1121,7 +1121,7 @@ function ConversationComposerImpl({
     });
   }, [hasComposerDraftContent, onDraftStateChange, pending]);
   // choice 保留正常发送按钮；提交后由 SessionPane 按 slash 语义决定是否弹确认框。
-  // V4 重构时把 guide 当成“不可提交”状态，导致按钮和 Enter 同时失效；
+  // V4 重构时把 guide 当成"不可提交"状态，导致按钮和 Enter 同时失效；
   // guide 是 CLI 已授权的 busy 输入路由，是否最终 steer 或回退 queue 由命令层裁决。
   const routingAllowsSend = draftMode || (snapshot !== null && mode !== "reject");
   const attachmentsReady = !attachmentsApi.hasUnreadyAttachments;
@@ -1491,7 +1491,7 @@ function ConversationComposerImpl({
   }, [conversationTelemetry, sessionId]);
 
   // 编辑器提交（Enter / 发送键 form submit 同路径）。返回 false：编辑器不自行 reset，
-  // 由 submit 成功后经 inputApiRef.clear() 清空——失败时草稿留在输入框。
+  // 由 submit 成功后经 inputApiRef.clear() 清空--失败时草稿留在输入框。
   const handleEditorSubmit = useCallback(
     (value: string) => {
       textRef.current = value;
@@ -2042,6 +2042,7 @@ function ConversationComposerImpl({
           <V4ComposerModelControls
             workspacePath={workspacePath}
             workspaceIdentity={workspaceIdentity}
+            remoteSessionId={remoteSessionId}
             modelSelectionView={modelSelectionView}
             modelSelectionState={modelSelectionState}
             modelSelectionReload={modelSelectionReload}
