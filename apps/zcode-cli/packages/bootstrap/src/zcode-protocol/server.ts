@@ -2,6 +2,11 @@ import { querySessionDebug } from "./session-debug.js";
 import {
   zcodePluginsCancelOperationParamsSchema,
   zcodeProtocolMethods,
+  zcodeProviderModelProbeGetViewParamsSchema,
+  zcodeProviderModelProbeProbeAllParamsSchema,
+  zcodeProviderModelProbeUpdateConfigParamsSchema,
+  zcodeProviderModelProbeGetViewResultSchema,
+  zcodeProviderModelProbeUpdateConfigResultSchema,
   zcodeWorkspaceCancelGenerateTextParamsSchema,
   zcodeWorkspaceHookTrustGrantParamsSchema,
 } from "@zcode/shared";
@@ -49,9 +54,15 @@ import {
 import { listChildProcesses } from "./process-child-processes.js";
 import { ProtocolRuntimeResources } from "./runtime-resources.js";
 import {
+  probeProviderModelHealth,
   readWorkspacePresentation,
   testProviderModelConnectivity,
 } from "./workspace-model-runtime.js";
+import {
+  attachModelProbeSink,
+  getProbeEngine,
+  syncRegistryModels,
+} from "./model-probe/index.js";
 import {
   addPluginMarketplace,
   configurePlugin,
@@ -206,7 +217,7 @@ export class ZCodeProtocolAgentServer {
   readonly browserControlPort: BrowserControlPort;
   /**
    * 官方 MCP 身份头端口所需的最小上下文。
-   * MCP 连接池的构造早于 server，需要在 server 就绪后回填闭包持有的引用——
+   * MCP 连接池的构造早于 server，需要在 server 就绪后回填闭包持有的引用--
    * 与 v4Gateway 同样的构造顺序收口方式。只暴露 requestClient，不外泄整个 context。
    */
   get officialMcpAuthRequestContext(): Pick<ZCodeProtocolAgentServerContext, "requestClient"> {
@@ -556,7 +567,7 @@ export class ZCodeProtocolAgentServer {
       case V4_METHODS.attachmentPreviewSource:
         return await this.requireV4Gateway().attachmentPreviewSource(request.params);
       // ── usage query（additive）：与旧 usage/stats、session/usage 同一数据访问
-      // 层（usage store 聚合），仅换 v4 名字空间——不经 v4Gateway（无会话投影依赖），
+      // 层（usage store 聚合），仅换 v4 名字空间--不经 v4Gateway（无会话投影依赖），
       // 也不经旧 op 分派（无桥）。旧 case 保留到旧词删除（老 host 版本兼容）。──
       case V4_METHODS.usageStats:
         return await getUsageStats(this.context, request.params);
@@ -641,6 +652,25 @@ export class ZCodeProtocolAgentServer {
         return this.cancelWorkspaceGenerateText(request.params);
       case zcodeProtocolMethods.providerTestModelConnectivity:
         return await testProviderModelConnectivity(this.context, request.params);
+      case zcodeProtocolMethods.providerModelProbeGetView: {
+        const params = parseParams(zcodeProviderModelProbeGetViewParamsSchema, request.params);
+        const engine = getProbeEngine(this.context, params.workspace);
+        await syncRegistryModels(this.context, params.workspace, engine);
+        return zcodeProviderModelProbeGetViewResultSchema.parse(await engine.getView());
+      }
+      case zcodeProtocolMethods.providerModelProbeProbeAll: {
+        const params = parseParams(zcodeProviderModelProbeProbeAllParamsSchema, request.params);
+        const engine = getProbeEngine(this.context, params.workspace);
+        await syncRegistryModels(this.context, params.workspace, engine);
+        void engine.probeAll(params.config).catch(() => {});
+        return { started: true };
+      }
+      case zcodeProtocolMethods.providerModelProbeUpdateConfig: {
+        const params = parseParams(zcodeProviderModelProbeUpdateConfigParamsSchema, request.params);
+        const engine = getProbeEngine(this.context, params.workspace);
+        await engine.updateConfig(params.config);
+        return zcodeProviderModelProbeUpdateConfigResultSchema.parse(await engine.getView());
+      }
       case zcodeProtocolMethods.mcpList:
         return await listMcpServers(this.context, request.params);
       case zcodeProtocolMethods.pluginsList:

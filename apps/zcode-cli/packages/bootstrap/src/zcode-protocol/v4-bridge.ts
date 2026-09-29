@@ -1,4 +1,5 @@
 import { readBackgroundBashOutputFromOwner } from "./background-work-owner.js";
+import { detachModelProbeSink } from "./model-probe/index.js";
 // v4 网关 binder。
 // 定位：ConversationV4Gateway 是域无关的通道运行时，本文件把它绑到协议服务器上下文：
 // - 帧出口 = context.notify（stdio NDJSON notification，与旧 session/event 同一条管道并存）；
@@ -188,7 +189,7 @@ async function readConversationFileChanges(
  * 冷物化时把本会话的 workflow run 从 journal 回放成 `DynamicWorkflowRunProgress` 会话事件。
  *
  *   - 只对**直接命中** record 的父会话补种：经 parentID 回落到父 record 的子会话（actor
- *     transcript）不补——journal 按父会话建键，子会话的投影不该长出父会话的 run；
+ *     transcript）不补--journal 按父会话建键，子会话的投影不该长出父会话的 run；
  *   - 内存事件里已出现过的 runId 交给 CLI 排除（本进程跑过的 run 事件全在内存 store 里，
  *     进度事件不带 turnId、不受 turn-window 淘汰），暖物化因此零重复；
  *   - 回放失败只记日志、回空：观察面绝不让冷开失败。
@@ -610,7 +611,7 @@ export function createConversationV4Gateway(
       (record.activeAbortController !== undefined || coreForegroundBusy)
     ) {
       // Bootstrap controller 不覆盖 model-only notification；旧 auto-drain
-      // 只看外层锁，因而把“空闲后消费”错误执行成抢占。busy 时不碰 reservation。
+      // 只看外层锁，因而把"空闲后消费"错误执行成抢占。busy 时不碰 reservation。
       scheduleAutoDrainRetry(record);
       return;
     }
@@ -619,7 +620,7 @@ export function createConversationV4Gateway(
       try {
         targetStatus = (await record.app.readTarget())?.status ?? null;
       } catch (error) {
-        // target 读取失败时按“未知且未完成”处理；直接提升会让
+        // target 读取失败时按"未知且未完成"处理；直接提升会让
         // goal verification 的持久终态尚未可证时普通 queue 偷跑。
         context.logger?.warn("v4 auto-drain held because target state could not be read", {
           error: error instanceof Error ? error.message : String(error),
@@ -734,7 +735,7 @@ export function createConversationV4Gateway(
         record.persistence = "immediate";
       }
       const routingMode = context.v4Gateway?.getInputRoutingMode(sessionId) ?? null;
-      // 这是执行前账本的“预计投递边界”；TurnSteerQueued 会用实际 delivery/回退原因
+      // 这是执行前账本的"预计投递边界"；TurnSteerQueued 会用实际 delivery/回退原因
       // 幂等更新同一记录。startNow 不能伪装成 queue，否则重启 discarded 的诊断事实失真。
       const requestedDelivery =
         input.requestedDelivery ??
@@ -1081,7 +1082,7 @@ export function createConversationV4Gateway(
       await afterStateMutation(context, record as ZCodeProtocolSessionRecord, reason);
       await autoDrainV4QueueIfReady(record as ZCodeProtocolSessionRecord);
     },
-    // deleteSession 的执行面：内联旧 closeSession op 的 4 步（不 import 旧 op——
+    // deleteSession 的执行面：内联旧 closeSession op 的 4 步（不 import 旧 op--
     // 语义与 server-operations.ts closeSession 对齐，随会话注册表归 v4 后收编）。
     closeSession: async (sessionId) => {
       const record = context.sessions.get(sessionId);
@@ -1092,11 +1093,12 @@ export function createConversationV4Gateway(
       record.unsubscribe?.();
       await record.app.close?.();
       // v4 通道：会话关闭同时清 publisher / 订阅调度；重开会话走 snapshot 冷启动。
-      // disposeSession 必须在注册表删除之前调用——
+      // disposeSession 必须在注册表删除之前调用--
       // gateway 靠 getSessionWorkspaceId（读 context.sessions）定位 workspace 才能把
       // session.removed 推给 sessions-index 订阅者；先 delete 再 dispose 时 workspaceId
       // 恒为 null，删除会话后侧栏列表项永不消失（e2e conversation-session-v4-sidebar 抓出）。
       context.v4Gateway?.disposeSession(sessionId);
+      detachModelProbeSink(record);
       context.sessions.delete(sessionId);
     },
     // createSession 的执行面：record 建立/事件接线/catalog 同步/失败自清理全在旧
@@ -1112,7 +1114,7 @@ export function createConversationV4Gateway(
       // - 本地工作区 = workspacePath（identity 缺省时的 fallback）；
       // - 远程 pane（跨 workspace 分屏）= 远程 identity
       //   （remote:ssh/wsl/docker:...:<path>，UI buildRemoteWorkspaceIdentity 构造）。
-      //   经统一解析工具还原真实 workspacePath 作 workingDirectory——CLI 本就跑在
+      //   经统一解析工具还原真实 workspacePath 作 workingDirectory--CLI 本就跑在
       //   远端机器上，path 即本机路径；identity 原样保留进 workspace ref
       //   （workspaceKey = identity，sessions-index topic / 隔离语义不变）。
       // shared parser 统一兼容 WSL legacy 与显式 user identity；非远程格式继续按
@@ -1664,7 +1666,7 @@ export function createConversationV4Gateway(
       }
       return readConversationFileChanges(record, sessionId, messageIds, targetTurnId);
     },
-    // dwf 事件日志：能力在 app 上（run service 构造成功才有），缺席时不在这里兜底成空页——
+    // dwf 事件日志：能力在 app 上（run service 构造成功才有），缺席时不在这里兜底成空页--
     // gateway 会回结构化的能力不支持错误，让 renderer 能区分"没有事件"与"没有这个能力"。
     listDynamicWorkflowRunEvents: async (sessionId, input) => {
       const record = context.sessions.get(sessionId);
@@ -1755,9 +1757,9 @@ export function createConversationV4Gateway(
     loadPersistedEvents: async (sessionId, persistedMessages) => {
       // dwf workflow actor / subagent 这类 detached live child 没有自己的
       // bootstrap record（事件经 ingestDetachedLiveSession 走父 record 的 sink 路由）。
-      // context.sessions.get 取不到 record 时不能直接返回 synthesized:false——
+      // context.sessions.get 取不到 record 时不能直接返回 synthesized:false--
       // 否则首次订阅的 performHydration 会走"保留健康 live publisher"早退分支，
-      // durable transcript 三源合并从不执行——只由 live 事件喂养的投影会丢掉所有
+      // durable transcript 三源合并从不执行--只由 live 事件喂养的投影会丢掉所有
       // 不以 live 事件形式出现的持久正文。amend-resume 把前驱 transcript 前缀直接
       // 复制进 session store 来播种 actor 会话，
       // 这段前缀正属于此类，于是侧栏 actor transcript 只剩本次 live 增量；
@@ -1770,7 +1772,7 @@ export function createConversationV4Gateway(
       const record = await resolveConversationBackingRecord(context, sessionId);
       if (!record) {
         // 诊断：hydrate 预期在 runtime 已由 cold-resume 激活后执行；连父 record 兜底
-        // 都落空时，返回空事件会把真实的生命周期竞态伪装成“历史为空”，必须留下明确现场。
+        // 都落空时，返回空事件会把真实的生命周期竞态伪装成"历史为空"，必须留下明确现场。
         context.logger?.warn("ZCode Protocol v4 hydrate has no active runtime", {
           activeSessionCount: context.sessions.size,
           event: "zcode_protocol.v4.hydrate_runtime_missing",
@@ -1791,7 +1793,7 @@ export function createConversationV4Gateway(
         record.eventStore.getLatestSequenceNumber(sessionId as SessionId),
       ]);
       // workflow run 的冷回放：journal 回放出的进度
-      // 事件前置到内存事件之前——cold merge 已把该类型归为 memory-only 权威（保序进 supplements），
+      // 事件前置到内存事件之前--cold merge 已把该类型归为 memory-only 权威（保序进 supplements），
       // 投影经同一个 reducer 归约，`workflowRuns` 因此在重启前后一致。
       const replayed = await replayDynamicWorkflowRunEvents(context, sessionId, record, liveEvents);
       const events = replayed.length === 0 ? liveEvents : [...replayed, ...liveEvents];
