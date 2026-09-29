@@ -1,5 +1,6 @@
 /* eslint-disable max-lines -- ZCode Protocol 的 session/workspace 方法共享同一个 server context 与 snapshot helpers，迁移期先集中维护。 */
 import { observeSessionDebug } from "./session-debug.js";
+import { attachModelProbeSink, detachModelProbeSink } from "./model-probe/index.js";
 import {
   TASK_LIST_SESSION_TYPES,
   isTaskListSessionType,
@@ -652,7 +653,7 @@ function mapProtocolSessionEvent(
   }
   // eventStore 的 sequenceNumber 是内部全量账本，包含被协议过滤的
   // tool_input_delta 等高频模型中间态。ZCode Protocol 的 seq 是 UI/replay 的恢复键，
-  // 必须按“协议实际可见事件流”重新连续编号，不能直接暴露内部 sequenceNumber。
+  // 必须按"协议实际可见事件流"重新连续编号，不能直接暴露内部 sequenceNumber。
   // sequenceNumber=0 的 subagent mirror/live-only 事件没有进入父 eventStore，也必须
   // 按 eventId 分配独立 seq，不能全部复用同一个 0 号映射。
   const protocolSeq = assignProtocolEventSeq(record, event, deliveryKind);
@@ -1279,6 +1280,7 @@ async function createSessionWithProjection<T>(
   const recordCreateDurationMs = Date.now() - recordStartedAt;
   context.assertServing?.();
   context.sessions.set(sessionId, record);
+  attachModelProbeSink(context, record);
   let setInitialModelDurationMs: number | undefined;
   let setInitialThoughtLevelDurationMs: number | undefined;
   let snapshotDurationMs = 0;
@@ -1381,6 +1383,7 @@ async function createSessionWithProjection<T>(
     // v4 通道：创建期已 ingest 的事件会惰性建出 publisher，失败清理时一并回收。
     // dispose 先于注册表删除，保证 session.removed 能带上 workspaceId 推送。
     context.v4Gateway?.disposeSession(sessionId);
+    detachModelProbeSink(record);
     context.sessions.delete(sessionId);
     try {
       await record.app.close?.();
@@ -1431,7 +1434,7 @@ export async function activateSessionForResume(
   let session = await getPersistedSession(context, params.sessionId);
   if (!session) {
     // 诊断：冷恢复只有在持久化记录也不存在时才会走到这里；单凭错误文本无法和
-    // readSession 的“runtime 尚未活跃”区分，因此把两层状态和等待耗时一起落盘。
+    // readSession 的"runtime 尚未活跃"区分，因此把两层状态和等待耗时一起落盘。
     context.logger?.warn("ZCode Protocol session resume found no persisted record", {
       activeBeforeWait,
       activeSessionCount: context.sessions.size,
@@ -1482,13 +1485,14 @@ export async function activateSessionForResume(
     { kind: "host" },
     session.traceID ? { traceId: session.traceID } : undefined,
   );
-  // createRecord 把 createdAt/updatedAt 写死为 Date.now()——resume 老会话
+  // createRecord 把 createdAt/updatedAt 写死为 Date.now()--resume 老会话
   // 会让 sessions-index 把它当"刚创建"的会话（配合 hydration 前的空标题，侧栏
   // 表现为原会话消失、冒出"新任务刚刚"）。恢复路径回填 store 的真实时间。
   if (session.time?.created) record.createdAt = session.time.created;
   if (session.time?.updated) record.updatedAt = session.time.updated;
   context.assertServing?.();
   context.sessions.set(params.sessionId, record);
+  attachModelProbeSink(context, record);
   const resumeResult = await runSessionModelConfigMutation(record.app, async () => {
     const result = options.reusePersistedMessages
       ? await record.app.resume({ persistedMessages })
@@ -1690,7 +1694,7 @@ export async function listSessionSubagents(
   const parentSession = await store.getSession(params.sessionId as SessionId);
   if (!parentSession) {
     // 诊断：hydrate 会复用子任务种子读取；若 task index/旧 ACP task 残留了无效 ID，
-    // 这里会把“持久化记录不存在”包装成 v4.hydrate，必须记录调用阶段而不是只看错误文本。
+    // 这里会把"持久化记录不存在"包装成 v4.hydrate，必须记录调用阶段而不是只看错误文本。
     context.logger?.warn("ZCode Protocol session subagents has no persisted parent", {
       activeSessionCount: context.sessions.size,
       activeSession: Boolean(liveParent),
@@ -2006,7 +2010,7 @@ export async function sendPrompt(context: ZCodeProtocolAgentServerContext, rawPa
   ).catch(() => {
     // 后台 turn 的错误会通过状态/事件流降级上报；这里兜底防止协议进程出现 unhandled rejection。
   });
-  // session/send 只是“提交用户输入”的协议请求，不能同步等待整轮模型生成完成。
+  // session/send 只是"提交用户输入"的协议请求，不能同步等待整轮模型生成完成。
   // 同步等待首 token/整轮会让超过 30s 的请求触发 host timeout，并且阻塞后续 session/resume、list 等协议消息。
   // 这里收到输入后立即 ACK，后台 turn 继续通过 session event/state.updated 推送进度。
   return afterPromptAccepted(context, record, "prompt_started");
@@ -2292,6 +2296,7 @@ export async function registerForkedSession(
   );
   context.assertServing?.();
   context.sessions.set(fork.forkedSessionId, forkRecord);
+  attachModelProbeSink(context, forkRecord);
   await runSessionModelConfigMutation(forkRecord.app, async () => {
     // fork 是父会话运行态的分支；只复制消息的话新 record 会从 workspace 默认值恢复，
     // 于是 fork 后的当前模型/模式会被最新默认设置覆盖。这里在 resume 前显式继承父会话设置。
@@ -2490,7 +2495,7 @@ function buildPromptTurnToolDisallowlist(
   const tools = new Set(params.toolDenylist ?? []);
   if (activeAutomationId) tools.add("CronCreate");
   // 闲时派发轮隐藏 OffPeakCreate（防递归自我派生）；OffPeakList 只读保留。
-  // 注意 automation 轮不加 OffPeakCreate——cron 轮放行（定时派生闲时任务）。
+  // 注意 automation 轮不加 OffPeakCreate--cron 轮放行（定时派生闲时任务）。
   // SendMessage / Workflow 同样隐藏，与 V4 prompt-turn 及 core turn-loop-state 同值。
   if (activeOffPeakTaskId) {
     for (const toolName of ["OffPeakCreate", "SendMessage", "Workflow"]) tools.add(toolName);
@@ -2724,9 +2729,10 @@ export async function closeSession(context: ZCodeProtocolAgentServerContext, raw
   record.unsubscribe?.();
   await record.app.close?.();
   // v4 通道：会话关闭同时清 publisher / 订阅调度；重开会话走 snapshot 冷启动。
-  // dispose 必须先于注册表删除——gateway 靠 getSessionWorkspaceId
+  // dispose 必须先于注册表删除--gateway 靠 getSessionWorkspaceId
   // （读 context.sessions）定位 workspace 才能推 session.removed 给 sessions-index 订阅者。
   context.v4Gateway?.disposeSession(params.sessionId);
+  detachModelProbeSink(record);
   context.sessions.delete(params.sessionId);
   // 内存 event store 随 record 释放。
   await record.eventStore.deleteSession(params.sessionId as SessionId);
@@ -2878,8 +2884,8 @@ async function resolveTurnMessageId(
   for (const message of messages) {
     if (message.info.role === "user") {
       if (role === "assistant" && currentTurn === turnIndex && lastAssistantForTargetTurn) {
-        // fork/rewind 的 legacy turn target 是“目标轮次的 assistant”，
-        // 不是“扫描到历史末尾时仍然处于目标轮次”。遇到下一条 user 就清空已找到的
+        // fork/rewind 的 legacy turn target 是"目标轮次的 assistant"，
+        // 不是"扫描到历史末尾时仍然处于目标轮次"。遇到下一条 user 就清空已找到的
         // assistant，导致只有最后一轮能 fork；compact summary 和 fork notice 这类 synthetic
         // user 又会把最后一轮变成非最后一轮。离开目标轮次前直接返回稳定目标。
         return lastAssistantForTargetTurn;
@@ -2952,7 +2958,7 @@ export async function getTaskTokenUsage(
  *   record.updatedAt 回填成 store 的真实时间（见 resumeSession op 内说明），
  *   若再被 resume 事件冲成 Date.now()，点开/刷新任务就会被顶到列表最前并整列重排。
  * - WorkspaceHookAdmissionUpdated：冷恢复重新评估工作区 hook 准入状态，不代表用户活动；
- *   若漏掉黑名单，SessionResumed 后的准入状态事件会把历史任务显示为“刚刚”。
+ *   若漏掉黑名单，SessionResumed 后的准入状态事件会把历史任务显示为"刚刚"。
  * - HookRun*：hook lifecycle 是 turn/session 的内部执行细节；正常 turn 已有消息、工具等
  *   活动事件负责更新时间，冷恢复的 SessionStart hook 不能单独制造一次用户活动。
  */
@@ -2975,7 +2981,7 @@ function isNonActivitySessionEvent(event: SessionEvent): boolean {
  * `record.persistence` 是 runtime「会话已持久化」事实的协议侧镜像：deferred = draft（不进 session/list、
  * 不进 sessions-index、可被 expectedPersistence="deferred" 的条件关闭收回）。首发路径在 accepted 时刻
  * 抢先提升（关闭竞态需要原子判断，见 startPromptTurn / admission），但**任何**经 runtime 首次持久化的
- * 路径都必须让会话离开 draft——中枢直接启动的会话由 runtime 落行、走 controlOnly
+ * 路径都必须让会话离开 draft--中枢直接启动的会话由 runtime 落行、走 controlOnly
  * 启动轮，没有首发，record 一直是 deferred，sessions-index 视其为 draft 而跳过，侧栏永远不出现。
  * 于是在事件流的唯一入口按 runtime 事实对齐一次：持久化之后 runtime 必定至少发一条事件
  * （SessionTitleUpdated first_input），紧随其后的 ingest 便把会话推进 sessions-index。
@@ -3047,7 +3053,7 @@ export function onSessionEvent(
   reconcileRecordPersistence(record);
   // 调试旁路不依赖聊天订阅；放在 deliveryKind 判断之前，避免旧订阅退出后诊断再次断流。
   observeSessionDebug(record, event);
-  // v4 通道：权威事件无条件喂给 v4 投影/发布器——v4 订阅不依赖旧协议的
+  // v4 通道：权威事件无条件喂给 v4 投影/发布器--v4 订阅不依赖旧协议的
   // deliveryKind 订阅态，帧节奏由 gateway 按订阅者 profile 自行调度。
   context.v4Gateway?.ingest(record.app.sessionId, event);
   if (!record.deliveryKind) return;
@@ -3207,7 +3213,7 @@ async function requestSessionRuntimePreferences(
     };
     if (errorCode === -32022) {
       // 诊断：偏好请求超时发生在 runtime 注册前；记录 session/scope，区分
-      // “Host 没收到/没回包”和“恢复过程中其他阶段失败”。
+      // "Host 没收到/没回包"和"恢复过程中其他阶段失败"。
       context.logger?.warn("ZCode Protocol runtime preferences request timed out", diagnostic);
     } else if (errorCode !== -32601 && errorCode !== -32020) {
       context.logger?.warn("ZCode Protocol runtime preferences request failed", diagnostic);
@@ -3338,7 +3344,7 @@ async function createRecord(
       parentSessionId,
       taskType,
       // 动态工作流灰度门：与 offPeakPort
-      // 同一套读法——本次 create/resume 参数优先，缺席时读 Host 同步到进程的 workspace 级
+      // 同一套读法--本次 create/resume 参数优先，缺席时读 Host 同步到进程的 workspace 级
       // 结论；两者都没有就是 false（fail-closed）。这里**必须写出显式布尔**，不能省成
       // undefined：core 把「缺席」定义为「不参与灰度、保留全部工具」（TUI / headless /
       // workflow_child 的语义），受信 Host 创建的会话不能落进那条豁免。
@@ -3990,7 +3996,7 @@ async function getPersistedSession(
 
 /**
  * 纯配置类 mutation reason：只改会话选型，不算用户活动。
- * 与 isConfigOnlySessionEvent 同一裁决——record.updatedAt 是 sessions-index
+ * 与 isConfigOnlySessionEvent 同一裁决--record.updatedAt 是 sessions-index
  * lastActivityAt / snapshot.session.updatedAt（task index 排序时间）的事实源，
  * 切模型/切思考深度/切模式不能把任务顶到列表最前。
  */

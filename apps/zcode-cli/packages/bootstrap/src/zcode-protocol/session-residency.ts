@@ -61,9 +61,10 @@ async function deactivateSessionRecord(
   context.v4Gateway?.assertSessionRuntimeDeactivatable(sessionId);
   record.unsubscribe?.();
   context.v4Gateway?.deactivateSession(sessionId);
+  detachModelProbeSink(record);
   context.sessions.delete(sessionId);
   await record.app.close?.();
-  // 去激活后内存 event store 必须与“从未加载”等价。
+  // 去激活后内存 event store 必须与"从未加载"等价。
   await record.eventStore.deleteSession(sessionId as SessionId);
 }
 

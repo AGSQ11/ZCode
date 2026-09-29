@@ -13,7 +13,7 @@
  *
  * 新任务和已有会话采用相同的 Composer 显示事实；prewarm 不补模型或档位。
  * 提交时由宿主（SessionPane）把冻结选择随 Submission 一起发送。
- * 三件套不能全部门控在 config!==null 上——草稿态会整体不渲染。
+ * 三件套不能全部门控在 config!==null 上--草稿态会整体不渲染。
  */
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -31,6 +31,7 @@ import {
   type ZCodeProviderAccountAccess,
   type ZCodeConfigOption,
   type ZCodeProvider,
+  type ModelProbeStatus,
 } from "@zcode/shared";
 import type {
   SessionConfigState,
@@ -82,6 +83,7 @@ import { useCodingPlanUpgradeDialog } from "@/settings/CodingPlanUpgradeDialogPr
 import { useCodingPlanEntitlements } from "@/settings/model-provider-section/useCodingPlanEntitlements.js";
 import { decodeCustomModelValue, encodeCustomModelValue } from "@/lib/zcodeCustomModelValue.js";
 import { buildRegistryModelSelectGroups } from "@/lib/modelSelectionGroups.js";
+import { useModelProbeStatus, modelProbeStatusKey } from "@/hooks/useModelProbeStatus.js";
 import {
   buildCodingPlanUsageSources,
   type CodingPlanUsageSource,
@@ -323,6 +325,7 @@ function resolveContextCodingPlanUsageSource(params: {
 export interface V4ComposerToolbarProps {
   workspacePath: string;
   workspaceIdentity?: string;
+  remoteSessionId?: string | null;
   modelSelectionView?: ModelSelectionView | null;
   modelSelectionState?: ModelSelectionState;
   modelSelectionReload?: () => void;
@@ -365,6 +368,7 @@ export interface V4ComposerToolbarProps {
 function V4ComposerModelControlsImpl({
   workspacePath,
   workspaceIdentity,
+  remoteSessionId,
   modelSelectionView = null,
   modelSelectionState = MODEL_SELECTION_LOADING_STATE,
   modelSelectionReload,
@@ -757,6 +761,30 @@ function V4ComposerModelControlsImpl({
     });
   }, [displayProvider, intl, modelSelectionView]);
 
+  // 订阅模型探测状态，按 ModelConfigSelect 的 item.key 重排，保持 presentation 层无 key 知识。
+  const { statusMap: modelProbeStatusMap } = useModelProbeStatus(
+    workspacePath,
+    remoteSessionId,
+    workspaceIdentity,
+  );
+  const modelConfigSelectStatusMap = useMemo<Map<string, ModelProbeStatus>>(() => {
+    const map = new Map<string, ModelProbeStatus>();
+    if (!modelProbeStatusMap) return map;
+    for (const group of modelSelectGroups) {
+      for (const item of group.items) {
+        const decoded = decodeCustomModelValue(item.value);
+        if (!decoded?.providerId || !decoded.modelName) continue;
+        const status = modelProbeStatusMap.get(
+          modelProbeStatusKey(decoded.providerId, decoded.modelName),
+        );
+        if (status) {
+          map.set(item.key, status);
+        }
+      }
+    }
+    return map;
+  }, [modelSelectGroups, modelProbeStatusMap]);
+
   // 修复：恢复「管理模型」入口（老版 onManageModels = 打开设置页并定位模型供应商区）。
   const handleOpenModelProviderSettings = useCallback(() => {
     setPendingSettingsSectionIntent("modelProvider");
@@ -779,7 +807,7 @@ function V4ComposerModelControlsImpl({
     return effectiveConfig.model;
   }, [effectiveConfig, modelSelectionView]);
 
-  // 触发器显示兜底——`<synthetic>`（Claude SDK 恢复合成模型）或当前模型
+  // 触发器显示兜底--`<synthetic>`（Claude SDK 恢复合成模型）或当前模型
   // 不在可选组（失效/下线/退登）→ 回落占位/默认「选择模型」，不直显协议内部占位符或失效
   // 模型 id。复用存活的 resolveModelSelectTriggerDisplay。
   const triggerDisplay = useMemo(
@@ -1042,6 +1070,7 @@ function V4ComposerModelControlsImpl({
       ) : modelMenuVisible ? (
         <ModelConfigSelect
           modelGroups={modelSelectGroups}
+          modelProbeStatusMap={modelConfigSelectStatusMap}
           normalizedValue={normalizedModelValue}
           triggerLabel={modelTriggerDisplay.fullLabel}
           triggerLabelPrefix={modelTriggerDisplay.providerPrefix}

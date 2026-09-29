@@ -18,6 +18,7 @@ import {
   IFileWatcherService,
   IOAuthService,
   IModelSelectionService,
+  IModelProbeService,
   IProviderSettingsService,
   IUsageStatsService,
   ICodingPlanSubscriptionService,
@@ -221,7 +222,7 @@ export function createRemoteWorkspaceServiceCollection(params: {
         sessionId: request.sessionId,
       };
       // 诊断：Agent 侧超时只能说明没有拿到响应；这里记录 Host 是否收到请求，
-      // 用“收到但无 response”区分 transport 丢包和设置读取卡住。
+      // 用"收到但无 response"区分 transport 丢包和设置读取卡住。
       runtimePreferencesLogger.info(
         undefined,
         "runtime preferences host request received",
@@ -348,6 +349,7 @@ export function createRemoteWorkspaceServiceCollection(params: {
     // Provider/Model 事实属于目标 Environment。远端 workspace 的选择和设置视图
     // 必须直接读取远端 Registry，不能继续显示 Desktop 本地 Provider。
     .register(IModelSelectionService, params.connectionServices.modelSelectionService)
+    .register(IModelProbeService, params.connectionServices.modelProbeService)
     .register(IProviderSettingsService, params.connectionServices.providerSettingsService)
     .register(
       IUsageStatsService,

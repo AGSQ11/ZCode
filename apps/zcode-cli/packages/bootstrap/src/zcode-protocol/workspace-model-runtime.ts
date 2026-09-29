@@ -139,3 +139,53 @@ export function resolveSessionModelContextWindow(
   const value = selection && record.app.getModelOption?.(selection)?.contextWindow;
   return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : undefined;
 }
+
+export async function probeProviderModelHealth(
+  context: ZCodeProtocolAgentServerContext,
+  rawParams: { workspace: ZCodeWorkspaceRef; selection: ModelSelection },
+  abortSignal?: AbortSignal,
+): Promise<{ ok: boolean; latencyMs?: number; ttftMs?: number; error?: string }> {
+  const startedAt = Date.now();
+  try {
+    // 阶段 1：既有连通性测试（真实 1-token 调用）作为廉价门禁。
+    await testProviderModelConnectivity(
+      context,
+      { workspace: rawParams.workspace, selection: rawParams.selection } as never,
+      abortSignal,
+    );
+    const active = Array.from(context.sessions.values()).find(
+      (record) => record.workspace.workspaceKey === rawParams.workspace.workspaceKey,
+    );
+    const app =
+      active?.app ??
+      (await createWorkspaceZCodeApp(context, rawParams.workspace, {
+        env: context.deps.env,
+        eventStore: createInMemorySessionEventStore(),
+        runtimeConfig: { workingDirectory: rawParams.workspace.workspacePath },
+        sessionStore: context.deps.sessionStore,
+        version: context.deps.version,
+      }));
+    try {
+      // 阶段 2：DSH 式最小 completion（"Reply with exactly OK."，maxTokens=8）。
+      const result = await app.generateWorkspaceText(
+        {
+          selection: rawParams.selection as ModelSelection,
+          prompt: "Reply with exactly OK.",
+          querySource: "model_probe_health",
+          maxOutputTokens: 8,
+        },
+        { abortSignal },
+      );
+      void result;
+      return { ok: true, latencyMs: Date.now() - startedAt };
+    } finally {
+      if (!active) await app.close?.();
+    }
+  } catch (error) {
+    return {
+      ok: false,
+      latencyMs: Date.now() - startedAt,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}

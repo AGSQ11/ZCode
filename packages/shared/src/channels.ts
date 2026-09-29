@@ -68,7 +68,7 @@ import type {
 } from "./cuaAccessibilitySettings.js";
 
 // ============================================================================
-// RPC 服务频道 —— 通过 ChannelServer/ChannelClient 传输
+// RPC 服务频道 -- 通过 ChannelServer/ChannelClient 传输
 // ============================================================================
 
 /** RPC 服务频道名。与 ServiceDescriptor.channelName 对应。 */
@@ -108,6 +108,8 @@ export const ServiceChannels = {
   ProviderSettings: "provider-settings",
   /** 新 Provider Registry 的模型选择 Facade */
   ModelSelection: "model-selection",
+  /** 模型健康探测 Facade */
+  ModelProbe: "model-probe",
   /** 远端 Environment 内部 Provider Provisioning target */
   ProviderProvisioningTarget: "provider-provisioning-target",
   /** 本地 usage 统计服务 */
@@ -154,7 +156,7 @@ export const ServiceChannels = {
 export type ServiceChannelName = (typeof ServiceChannels)[keyof typeof ServiceChannels];
 
 // ============================================================================
-// 平台频道 —— 仅 Desktop main 进程能处理的操作（Electron IPC）
+// 平台频道 -- 仅 Desktop main 进程能处理的操作（Electron IPC）
 // ============================================================================
 
 /** Electron IPC 频道名。仅在 preload ↔ main 之间使用。 */
@@ -290,7 +292,7 @@ export const PlatformChannels = {
   CancelCuaPermissionOnboarding: "zcode:cancel-cua-permission-onboarding",
   /**
    * Renderer → Main：预热并缓存已验证的 Helper 路径 + bundle 指纹。
-   * 必须在拖拽浮窗挂载时调用 —— dragstart 链路里不允许任何异步 I/O。
+   * 必须在拖拽浮窗挂载时调用 -- dragstart 链路里不允许任何异步 I/O。
    */
   PrepareCuaHelperPermissionDrag: "zcode:prepare-cua-helper-permission-drag",
   /** Renderer → Main：把已验证的 Helper.app 同步拖出到 macOS 权限列表 */
@@ -386,7 +388,7 @@ export const PlatformChannels = {
   OpenUpdateStatusWindow: "zcode:open-update-status-window",
   /** Renderer → Main：读取自动更新偏好 */
   GetAutoUpdatePreferences: "zcode:get-auto-update-preferences",
-  /** Renderer → Main：写入“自动下载并安装更新”偏好 */
+  /** Renderer → Main：写入"自动下载并安装更新"偏好 */
   SetAutoDownloadAndInstallUpdates: "zcode:set-auto-download-and-install-updates",
   /** Renderer → Main：查询桌面端正在运行的会话数量 */
   GetDesktopSessionActivity: "zcode:get-desktop-session-activity",
@@ -431,7 +433,7 @@ export const PlatformChannels = {
 export type PlatformChannelName = (typeof PlatformChannels)[keyof typeof PlatformChannels];
 
 // ============================================================================
-// 内置 WebView 频道 —— 固定 guest preload ↔ embedder renderer
+// 内置 WebView 频道 -- 固定 guest preload ↔ embedder renderer
 // ============================================================================
 
 /** Electron `<webview>` 的 `sendToHost` / `ipc-message` 频道，不经过 main process。 */
@@ -446,7 +448,7 @@ export interface EmbeddedBrowserWheelBoundaryPayload {
 }
 
 // ============================================================================
-// Coding Plan WebView 频道 —— 官网页 preload ↔ App renderer
+// Coding Plan WebView 频道 -- 官网页 preload ↔ App renderer
 // ============================================================================
 
 /**
@@ -481,7 +483,7 @@ export interface CodingPlanWebviewLangChangeDetail {
 }
 
 // ============================================================================
-// 内部传输频道 —— 框架级别的通信
+// 内部传输频道 -- 框架级别的通信
 // ============================================================================
 /** 内部传输频道。用于 MessagePort 转发等框架级通信。 */
 export const InternalChannels = {
@@ -503,7 +505,7 @@ export const ZCODE_RPC_CLIENT_MODE_HEADER = "x-zcode-rpc-client-mode";
 export const ZCODE_RPC_HOST_CAPABILITY_HEADER = "x-zcode-rpc-host-capability";
 
 // ============================================================================
-// 进程间消息类型 —— main ↔ host process 之间的 postMessage
+// 进程间消息类型 -- main ↔ host process 之间的 postMessage
 // ============================================================================
 
 /** main → host process 的初始化消息类型 */
@@ -663,7 +665,7 @@ export const HostResponseTypes = {
 } as const;
 
 // ============================================================================
-// 平台频道类型映射 —— request/response 类型安全
+// 平台频道类型映射 -- request/response 类型安全
 // ============================================================================
 
 /** 平台频道的请求/响应类型映射 */

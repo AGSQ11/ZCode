@@ -39,6 +39,7 @@ import {
   TID_CHAT_MODEL_SELECT_ITEM,
   TID_CHAT_MODEL_SELECT_TRIGGER,
   testId,
+  type ModelProbeStatus,
 } from "@zcode/shared";
 import {
   isCoarseTouchDevice,
@@ -46,6 +47,7 @@ import {
 } from "@/lib/pickerFocus.js";
 import { RollingToolbarLabel } from "@/chat-input-toolbar/RollingToolbarLabel.js";
 import { ModelInputCapabilityBadge } from "@/components/ModelInputCapabilityBadge.js";
+import { modelProbeDotClass, sortModelProbeGroups } from "@/lib/modelProbePresentation.js";
 
 export interface ModelSelectGroupItem {
   key: string;
@@ -181,6 +183,8 @@ interface ModelConfigSelectProps {
   leadingItems?: readonly ModelSelectGroupItem[];
   /** 触发器里标签之后的小徽标（如「会话模型」「不可用」）；缺省即无。 */
   triggerBadge?: ReactNode;
+  /** 模型探测状态图：item.key → alive/dead/unknown；缺省不展示健康圆点、不调整排序。 */
+  modelProbeStatusMap?: ReadonlyMap<string, ModelProbeStatus>;
 }
 
 export const ModelConfigSelect = memo(function ModelConfigSelectComponent({
@@ -224,14 +228,19 @@ export const ModelConfigSelect = memo(function ModelConfigSelectComponent({
   contentAlign = "start",
   leadingItems,
   triggerBadge,
+  modelProbeStatusMap,
 }: ModelConfigSelectProps) {
+  const sortedModelGroups = useMemo(
+    () => (modelProbeStatusMap ? sortModelProbeGroups(modelGroups, modelProbeStatusMap) : modelGroups),
+    [modelGroups, modelProbeStatusMap],
+  );
   const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
   const open = controlledOpen ?? uncontrolledOpen;
   const lastOpenRequestKeyRef = useRef(openRequestKey);
-  const hasSelectableModel = modelGroups.length > 0;
+  const hasSelectableModel = sortedModelGroups.length > 0;
   // 闲时任务白名单只有一层模型值；只要存在 group 就强制展示 provider 层的话，
   // 下方已有的扁平模型分支永远不可达，也无法复用 New Task 模型选择器。
-  const shouldShowProviderLevel = showProviderLevel ?? shouldShowModelProviderLevel(modelGroups);
+  const shouldShowProviderLevel = showProviderLevel ?? shouldShowModelProviderLevel(sortedModelGroups);
   // 模型名和上游占位值可能大小写敏感，强制大写会把 `<synthetic>` 改成 `<SYNTHETIC>` 这类非原始值。
   const triggerDisplayLabel = triggerLabel;
   const renderedTriggerDisplayLabel =
@@ -295,9 +304,17 @@ export const ModelConfigSelect = memo(function ModelConfigSelectComponent({
         "data-testid": testId(TID_CHAT_MODEL_SELECT_ITEM, item.value),
         "data-checked": itemSelected ? "true" : undefined,
       } as const;
+      const dotClass = modelProbeStatusMap ? modelProbeDotClass(modelProbeStatusMap.get(item.key)) : null;
       const content = (
         <>
           <span className="flex min-w-0 flex-1 items-center gap-1.5 text-left">
+            {dotClass ? (
+              <span
+                aria-hidden
+                className={cn("inline-block h-2 w-2 shrink-0 rounded-full", dotClass)}
+                data-testid={testId(TID_CHAT_MODEL_SELECT_ITEM, "health-dot")}
+              />
+            ) : null}
             <span className="min-w-0 truncate" title={item.name}>
               {item.name}
             </span>
@@ -370,6 +387,7 @@ export const ModelConfigSelect = memo(function ModelConfigSelectComponent({
       isItemLocked,
       lockReasonMessage,
       normalizedValue,
+      modelProbeStatusMap,
     ],
   );
 
@@ -575,9 +593,9 @@ export const ModelConfigSelect = memo(function ModelConfigSelectComponent({
             </>
           ) : null}
           {hasSelectableModel && shouldShowProviderLevel
-            ? modelGroups.map((group, index) => {
+            ? sortedModelGroups.map((group, index) => {
                 const groupSeparator = shouldRenderModelGroupSeparator(
-                  modelGroups[index - 1],
+                  sortedModelGroups[index - 1],
                   group,
                 ) ? (
                   <DropdownMenuSeparator />
@@ -634,7 +652,7 @@ export const ModelConfigSelect = memo(function ModelConfigSelectComponent({
                 );
               })
             : hasSelectableModel
-              ? renderModelItems(modelGroups[0]?.items ?? [])
+              ? renderModelItems(sortedModelGroups[0]?.items ?? [])
               : null}
           {renderedFooterActions.length > 0 ? (
             <div className="sticky bottom-0 z-10 bg-menu after:absolute after:left-0 after:top-full after:h-1 after:w-full after:bg-menu after:content-['']">

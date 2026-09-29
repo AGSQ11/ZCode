@@ -115,6 +115,8 @@ export interface ZCodeProtocolSessionRecord {
   restoreWarning?: { message: string; type: string };
   /** 冷恢复候选只供初始投影；新的选模事件立即清除，不能替代 Runtime 执行绑定。 */
   restoredModelSelection?: ModelSelection;
+  /** 会话模型事件探针 sink 销毁函数；记录销毁时释放，避免引擎继续接收已关闭 app 的事件。 */
+  modelProbeSinkDispose?: () => void;
 }
 
 export interface ZCodeProtocolClientRequestOptions {
@@ -221,7 +223,7 @@ export function parseParams<T>(schema: ParamsSchema<T>, params: unknown): T {
     const detail = summarizeParamsError(error);
     throw new ProtocolRequestError(
       -32602,
-      detail ? `Invalid params — ${detail}` : "Invalid params",
+      detail ? `Invalid params - ${detail}` : "Invalid params",
       error,
     );
   }
@@ -309,7 +311,7 @@ export function requireSession(
 ): ZCodeProtocolSessionRecord {
   const record = context.sessions.get(sessionId);
   if (!record) {
-    // 诊断：readSession 只读取活跃 runtime；记录缺失时要区分“冷会话尚未恢复”和“ID 已失效”，
+    // 诊断：readSession 只读取活跃 runtime；记录缺失时要区分"冷会话尚未恢复"和"ID 已失效"，
     // 不能只留下相同的错误文本，否则无法判断 UI 是读早了还是 task index 带来了脏引用。
     context.logger?.warn("ZCode Protocol session runtime missing", {
       activeSessionCount: context.sessions.size,
