@@ -7,6 +7,7 @@ export type SettingsSectionId =
   | "migration"
   | "browser"
   | "modelProvider"
+  | "modelProbe"
   | "memory"
   | "plugin"
   | "mcp"
@@ -65,6 +66,7 @@ function isSettingsSectionId(value: string): value is SettingsSectionId {
     value === "migration" ||
     value === "browser" ||
     value === "modelProvider" ||
+    value === "modelProbe" ||
     value === "memory" ||
     value === "plugin" ||
     value === "mcp" ||
@@ -129,7 +131,7 @@ function readLastSettingsSectionPreference(
       storage.setItem(SETTINGS_LAST_SECTION_STORAGE_KEY, "skill");
       return "skill";
     }
-    // 旧版“代码预览”已并入“外观”，保留用户上次停留位置的迁移语义。
+    // 旧版"代码预览"已并入"外观"，保留用户上次停留位置的迁移语义。
     if (raw === "codePreview") {
       storage.setItem(SETTINGS_LAST_SECTION_STORAGE_KEY, "appearance");
       return "appearance";
@@ -170,7 +172,7 @@ export function consumeInitialSettingsSection(
 ): SettingsSectionId {
   const lastSection = readLastSettingsSectionPreference(fallbackSection);
   // 普通打开设置页以前把 consumePendingSettingsSection 的 fallback 写死为
-  // modelProvider，导致没有显式跳转意图时也总进“模型供应商”。这里先读上次停留分区，
+  // modelProvider，导致没有显式跳转意图时也总进"模型供应商"。这里先读上次停留分区，
   // 再让 quickpick / 管理模型这类一次性意图覆盖它，保留显式入口的直达语义。
   return resolveSettingsSection(consumePendingSettingsSection(lastSection), lastSection);
 }
@@ -425,7 +427,7 @@ export function shouldFallbackSettingsUsageTabToApp({
   showCodingPlanTab: boolean;
 }): boolean {
   // Coding Plan 跳转意图可能先于 provider/entitlement 数据完成加载。
-  // 只有确认不再 loading 且仍没有有效套餐时才回退到 App Usage，避免“更多”点击后被首帧误改回默认 tab。
+  // 只有确认不再 loading 且仍没有有效套餐时才回退到 App Usage，避免"更多"点击后被首帧误改回默认 tab。
   return (
     activeTab === "codingPlan" &&
     !showCodingPlanTab &&
@@ -446,7 +448,7 @@ export function addPendingSettingsSectionListener(
     if (detail?.section && isSettingsSectionId(detail.section)) {
       // 设置页已打开时，事件已经承载了这次跳转意图。
       // 这里同步清掉 sessionStorage，避免用户随后切到别的分区并退出后，
-      // 下次挂载又被陈旧 pending 意图覆盖“上次停留分区”。
+      // 下次挂载又被陈旧 pending 意图覆盖"上次停留分区"。
       clearPendingSettingsSectionIntent();
       listener(detail.section, detail);
     }
