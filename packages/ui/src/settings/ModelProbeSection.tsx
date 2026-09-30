@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Activity, RefreshCwIcon } from "lucide-react";
-import type { ZCodeModelProbeEntry, ModelProbeStatus } from "@zcode/shared";
+import type { ModelProbeEntry, ModelProbeStatus } from "@zcode/shared";
 import { Button } from "@/components/ui/button.js";
 import { cn } from "@/components/lib/utils.js";
 import { useModelProbeView } from "@/hooks/useModelProbeView.js";
@@ -22,7 +22,7 @@ export function ModelProbeSection(props: { workspacePath: string; workspaceIdent
 
   const rows = useMemo(() => {
     const entries = view?.entries ?? [];
-    return entries.filter((entry) => entry.status === tab);
+    return entries.filter((entry: ModelProbeEntry) => entry.status === tab);
   }, [view, tab]);
 
   const handleProbeAll = async (): Promise<void> => {
@@ -77,7 +77,10 @@ export function ModelProbeSection(props: { workspacePath: string; workspaceIdent
           >
             {intl.formatMessage({ id: `settings.modelProbe.tab.${candidate}` })}
             <span className="ml-1.5 text-xs opacity-70">
-              {(view?.entries ?? []).filter((entry) => entry.status === candidate).length}
+              {
+                (view?.entries ?? []).filter((entry: ModelProbeEntry) => entry.status === candidate)
+                  .length
+              }
             </span>
           </button>
         ))}
@@ -114,7 +117,9 @@ export function ModelProbeSection(props: { workspacePath: string; workspaceIdent
                 </td>
               </tr>
             ) : (
-              rows.map((entry) => <ModelProbeRow key={`${entry.providerId}:${entry.modelId}`} entry={entry} />)
+              rows.map((entry) => (
+                <ModelProbeRow key={`${entry.providerId}:${entry.modelId}`} entry={entry} />
+              ))
             )}
           </tbody>
         </table>
@@ -123,14 +128,16 @@ export function ModelProbeSection(props: { workspacePath: string; workspaceIdent
   );
 }
 
-function ModelProbeRow({ entry }: { entry: ZCodeModelProbeEntry }) {
+function ModelProbeRow({ entry }: { entry: ModelProbeEntry }) {
   const { intl } = useZCodeIntl();
   const dot = modelProbeDotClass(entry.status);
   return (
     <tr className="border-t">
       <td className="px-3 py-2">
         <span className="mr-2 inline-flex items-center gap-1.5">
-          {dot ? <span aria-hidden className={cn("inline-block h-2 w-2 rounded-full", dot)} /> : null}
+          {dot ? (
+            <span aria-hidden className={cn("inline-block h-2 w-2 rounded-full", dot)} />
+          ) : null}
         </span>
         {entry.modelId}
       </td>

@@ -9,6 +9,7 @@
 **Tech Stack:** TypeScript, zod (packages/shared), node:test + tsx for tests, React + existing UI components (packages/ui), lucide-react icons.
 
 **Two refinements vs. the spec** (same behavior, better-verified placement):
+
 1. Engine home is the bootstrap protocol server, not per-session core runtime methods - `AgentRuntime` is per-session; the ledger must observe all sessions of the process. The spec's intent (single owner in the long-lived runtime process) is preserved.
 2. Persistence is a process-level JSON ledger (`~/.zcode/model-probe/ledger-v1.json`, atomic tmp+rename, mirroring the workspace-hook trust-store pattern) instead of a session-store migration - the ledger is Host-global provider health, not session data; the session store is the wrong domain.
 
@@ -21,6 +22,7 @@
 ### Task 1: Shared probe types + pure health policy engine
 
 **Files:**
+
 - Create: `packages/shared/src/model-probe.ts`
 - Create: `packages/shared/test/model-probe.test.ts`
 - Modify: `packages/shared/src/index.ts` (add export near other domain exports)
@@ -220,7 +222,10 @@ function reschedule(entry: ModelProbeEntry, checkedAt: number): ModelProbeEntry 
  * 探测结果（手工探测、计划复查）落入账本。失败达到阈值即判 Dead 并安排复查；
  * 未达阈值保持当前状态继续重试。成功立即 Alive。
  */
-export function applyProbeOutcome(entry: ModelProbeEntry, outcome: ModelProbeOutcome): ModelProbeEntry {
+export function applyProbeOutcome(
+  entry: ModelProbeEntry,
+  outcome: ModelProbeOutcome,
+): ModelProbeEntry {
   const source: ModelProbeOutcomeRecord["source"] =
     entry.status === "dead" ? "scheduled-recheck" : "manual-probe";
   const recorded = withHistory(entry, { ...outcome, source });
@@ -295,6 +300,7 @@ git commit -m "feat(shared): model probe types and pure health policy"
 ### Task 2: Protocol methods and schemas
 
 **Files:**
+
 - Modify: `packages/shared/src/zcode-protocol/index.ts` (schemas near line 2132 `zcodeProviderTestModelConnectivityParamsSchema`; method names near line 3615 `providerTestModelConnectivity: "provider/testModelConnectivity"`)
 
 - [ ] **Step 1: Add method names**
@@ -343,7 +349,11 @@ export const zcodeModelProbeEntrySchema = z.intersection(
 export const zcodeModelProbeConfigSchema = z.object({
   probeTimeoutMs: z.number().int().min(1_000).max(120_000),
   concurrency: z.number().int().min(1).max(16),
-  deadRecheckIntervalMs: z.number().int().min(60_000).max(24 * 60 * 60 * 1000),
+  deadRecheckIntervalMs: z
+    .number()
+    .int()
+    .min(60_000)
+    .max(24 * 60 * 60 * 1000),
 });
 
 export const zcodeModelProbeViewSchema = z.object({
@@ -416,6 +426,7 @@ git commit -m "feat(shared): model probe protocol methods and schemas"
 ### Task 3: Ledger JSON store (bootstrap)
 
 **Files:**
+
 - Create: `apps/zcode-cli/packages/bootstrap/src/zcode-protocol/model-probe/ledger-store.ts`
 - Create: `apps/zcode-cli/packages/bootstrap/src/zcode-protocol/model-probe/ledger-store.test.ts`
 
@@ -456,7 +467,9 @@ test("writes atomically and stamps schema version", async () => {
     const store = createModelProbeLedgerStore({ dataDir: dir });
     const key = { workspaceKey: "ws-1", providerId: "p", modelId: "m" };
     await store.put(key, createProbeEntry({ providerId: "p", modelId: "m" }));
-    const raw = JSON.parse(await readFile(join(dir, "ledger-v1.json"), "utf8")) as ModelProbeLedgerFile;
+    const raw = JSON.parse(
+      await readFile(join(dir, "ledger-v1.json"), "utf8"),
+    ) as ModelProbeLedgerFile;
     assert.equal(raw.schemaVersion, MODEL_PROBE_LEDGER_SCHEMA_VERSION);
     assert.ok(raw.workspaces["ws-1"]);
   } finally {
@@ -566,8 +579,7 @@ export function createModelProbeLedgerStore(options: {
     async put(key, entry) {
       const state = await read();
       state.workspaces[key.workspaceKey] ??= {};
-      state.workspaces[key.workspaceKey][entryKey(key)] =
-        zcodeModelProbeEntrySchema.parse(entry);
+      state.workspaces[key.workspaceKey][entryKey(key)] = zcodeModelProbeEntrySchema.parse(entry);
       await scheduleFlush(state);
     },
     async putMany(workspaceKey, entries) {
@@ -603,6 +615,7 @@ git commit -m "feat(bootstrap): atomic model probe ledger store"
 ### Task 4: Probe engine (observer, executor, scheduler)
 
 **Files:**
+
 - Create: `apps/zcode-cli/packages/bootstrap/src/zcode-protocol/model-probe/model-probe-engine.ts`
 - Create: `apps/zcode-cli/packages/bootstrap/src/zcode-protocol/model-probe/model-probe-engine.test.ts`
 
@@ -689,7 +702,10 @@ test("abort events are ignored", async () => {
   try {
     await engine.onSessionModelEvent({ type: "abort", providerId: "p", modelId: "m" });
     const view = await engine.getView();
-    assert.equal(view.entries.find((e) => e.modelId === "m"), undefined);
+    assert.equal(
+      view.entries.find((e) => e.modelId === "m"),
+      undefined,
+    );
     assert.deepEqual(calls(), []);
   } finally {
     await cleanup();
@@ -847,7 +863,10 @@ export function createModelProbeEngine(deps: {
     await deps.ledger.put(storeKey, next);
   }
 
-  async function runProbe(key: ModelProbeKey, source: "manual-probe" | "scheduled-recheck"): Promise<void> {
+  async function runProbe(
+    key: ModelProbeKey,
+    source: "manual-probe" | "scheduled-recheck",
+  ): Promise<void> {
     if (disposed) return;
     const id = keyOf(key);
     if (probing.has(id)) return;
@@ -864,15 +883,14 @@ export function createModelProbeEngine(deps: {
           }),
         ]);
         const current = entry(key);
-        const outcome =
-          result.ok
-            ? {
-                ok: true,
-                checkedAt: now(),
-                latencyMs: result.latencyMs,
-                ttftMs: result.ttftMs,
-              }
-            : { ok: false, checkedAt: now(), error: result.error ?? "probe failed" };
+        const outcome = result.ok
+          ? {
+              ok: true,
+              checkedAt: now(),
+              latencyMs: result.latencyMs,
+              ttftMs: result.ttftMs,
+            }
+          : { ok: false, checkedAt: now(), error: result.error ?? "probe failed" };
         void commit(key, applyProbeOutcome(current, outcome));
       } catch (error) {
         const current = entry(key);
@@ -950,9 +968,7 @@ export function createModelProbeEngine(deps: {
     },
     async runScheduledRechecks() {
       const due = [...entries.values()].filter(
-        (item) =>
-          item.status === "dead" &&
-          (item.nextRetryAt ?? Number.POSITIVE_INFINITY) <= now(),
+        (item) => item.status === "dead" && (item.nextRetryAt ?? Number.POSITIVE_INFINITY) <= now(),
       );
       for (const item of due) {
         await runProbe({ providerId: item.providerId, modelId: item.modelId }, "scheduled-recheck");
@@ -1007,6 +1023,7 @@ git commit -m "feat(bootstrap): model probe engine with observer, executor, sche
 ### Task 5: Executor + protocol server wiring
 
 **Files:**
+
 - Create: `apps/zcode-cli/packages/bootstrap/src/zcode-protocol/model-probe/probe-executor.ts`
 - Modify: `apps/zcode-cli/packages/bootstrap/src/zcode-protocol/server.ts` (method dispatch near line 642; session registration site)
 - Modify: `apps/zcode-cli/packages/bootstrap/src/zcode-protocol/workspace-model-runtime.ts` (export a reusable executor)
@@ -1164,7 +1181,8 @@ export function attachModelProbeSink(
       const selection = readModelSelectionFromEvent(event);
       if (!selection) return;
       const latencyMs =
-        event.type === "model_complete" && typeof (event.payload as { latencyMs?: unknown })?.latencyMs === "number"
+        event.type === "model_complete" &&
+        typeof (event.payload as { latencyMs?: unknown })?.latencyMs === "number"
           ? (event.payload as { latencyMs: number }).latencyMs
           : undefined;
       void engine
@@ -1200,6 +1218,7 @@ git commit -m "feat(bootstrap): model probe protocol handlers and session observ
 ### Task 6: Services facade
 
 **Files:**
+
 - Create: `packages/services/src/model-probe/modelProbeService.ts`
 - Modify: `packages/services/src/zcode-agent/zcodeAgent.ts` (interface methods after `testModelConnectivity`, line ~690)
 - Modify: `packages/services/src/zcode-agent/zcodeAgentService.ts` (implementation after `testModelConnectivity`, line ~4412)
@@ -1213,10 +1232,7 @@ git commit -m "feat(bootstrap): model probe protocol handlers and session observ
 // packages/services/src/model-probe/modelProbeService.ts
 import type { Event } from "@zcode/rpc";
 import { ServiceChannels } from "@zcode/shared";
-import type {
-  ZCodeModelProbeConfig,
-  ZCodeModelProbeView,
-} from "@zcode/shared";
+import type { ZCodeModelProbeConfig, ZCodeModelProbeView } from "@zcode/shared";
 import { createServiceDescriptor } from "../descriptors.js";
 import type { ZCodeAgentModelProbeTarget } from "../zcode-agent/zcodeAgent.js";
 
@@ -1233,11 +1249,7 @@ export const IModelProbeService = createServiceDescriptor<IModelProbeService>(
 
 export interface ModelProbeServiceDeps {
   /** 按 workspace 目标解析 zcodeAgent 客户端并发起协议调用（与 testModelConnectivity 同构）。 */
-  request: <T>(
-    method: string,
-    params: unknown,
-    parse: (value: unknown) => T,
-  ) => Promise<T>;
+  request: <T>(method: string, params: unknown, parse: (value: unknown) => T) => Promise<T>;
   target: ZCodeAgentModelProbeTarget;
 }
 
@@ -1368,6 +1380,7 @@ git commit -m "feat(services): model probe service facade over zcode protocol"
 ### Task 7: UI hooks
 
 **Files:**
+
 - Create: `packages/ui/src/hooks/useModelProbeStatus.ts`
 - Create: `packages/ui/src/hooks/useModelProbeView.ts`
 
@@ -1493,7 +1506,11 @@ export function useModelProbeView(
         },
         (error: unknown) => {
           if (!cancelled) {
-            setState({ view: null, loading: false, error: error instanceof Error ? error : new Error(String(error)) });
+            setState({
+              view: null,
+              loading: false,
+              error: error instanceof Error ? error : new Error(String(error)),
+            });
           }
         },
       );
@@ -1532,6 +1549,7 @@ git commit -m "feat(ui): model probe status and view hooks"
 ### Task 8: Picker presentation + ModelConfigSelect integration
 
 **Files:**
+
 - Create: `packages/ui/src/lib/modelProbePresentation.ts`
 - Create: `packages/ui/test/modelProbePresentation.test.ts`
 - Modify: `packages/ui/src/ModelConfigSelect.tsx` (row rendering + group ordering)
@@ -1564,10 +1582,7 @@ test("groups are tiered alive→unknown→dead, alphabetical within tier", () =>
     {
       key: "provider-1",
       label: "Provider 1",
-      items: [
-        item("z-p:m-zeta", "Zeta"),
-        item("z-p:m-alpha", "Alpha"),
-      ],
+      items: [item("z-p:m-zeta", "Zeta"), item("z-p:m-alpha", "Alpha")],
     },
   ];
   const statusMap = new Map([
@@ -1651,7 +1666,7 @@ In `packages/ui/src/ModelConfigSelect.tsx`:
         data-testid={testId(TID_CHAT_MODEL_SELECT_ITEM, "health-dot")}
       />
     ) : null;
-  })()
+  })();
 }
 ```
 
@@ -1673,6 +1688,7 @@ git commit -m "feat(ui): health dots and tiered ordering in model selection"
 ### Task 9: Settings section registration
 
 **Files:**
+
 - Modify: `packages/ui/src/lib/settingsNavigation.ts` (add `"modelProbe"` to `SettingsSectionId` union, line ~4)
 - Modify: `packages/ui/src/settings/settingsPageConfig.ts` (new section after `modelProvider`, line ~75)
 
@@ -1712,6 +1728,7 @@ git commit -m "feat(ui): register model probe settings section"
 ### Task 10: ModelProbeSection UI + i18n
 
 **Files:**
+
 - Create: `packages/ui/src/settings/ModelProbeSection.tsx`
 - Modify: `packages/ui/src/SettingsPage.tsx` (render switch, after the `modelProvider` branch at line ~1812)
 - Modify: `packages/ui/src/i18n/locales/en-US.ts` and `zh-CN.ts`
@@ -1776,9 +1793,7 @@ export function ModelProbeSection(props: { workspacePath: string; workspaceIdent
           </Button>
         </div>
       </div>
-      {error ? (
-        <p className="text-sm text-red-500">{t("settings.modelProbe.readError")}</p>
-      ) : null}
+      {error ? <p className="text-sm text-red-500">{t("settings.modelProbe.readError")}</p> : null}
       <div className="flex gap-1" role="tablist">
         {TAB_ORDER.map((candidate) => (
           <button
@@ -1818,7 +1833,9 @@ export function ModelProbeSection(props: { workspacePath: string; workspaceIdent
                 </td>
               </tr>
             ) : (
-              rows.map((entry) => <ModelProbeRow key={`${entry.providerId}:${entry.modelId}`} entry={entry} />)
+              rows.map((entry) => (
+                <ModelProbeRow key={`${entry.providerId}:${entry.modelId}`} entry={entry} />
+              ))
             )}
           </tbody>
         </table>
@@ -1834,7 +1851,9 @@ function ModelProbeRow({ entry }: { entry: ZCodeModelProbeEntry }) {
     <tr className="border-t">
       <td className="px-3 py-2">
         <span className="mr-2 inline-flex items-center gap-1.5">
-          {dot ? <span aria-hidden className={cn("inline-block h-2 w-2 rounded-full", dot)} /> : null}
+          {dot ? (
+            <span aria-hidden className={cn("inline-block h-2 w-2 rounded-full", dot)} />
+          ) : null}
         </span>
         {entry.modelId}
       </td>
@@ -1944,6 +1963,7 @@ pnpm typecheck
 pnpm lint
 pnpm architecture:check --changed
 ```
+
 Expected: all PASS. If architecture check flags a new boundary violation (e.g. ui importing from bootstrap), fix the dependency direction - UI touches only `@zcode/shared` types + services descriptors.
 
 - [ ] **Step 2: Cross-check against the spec**

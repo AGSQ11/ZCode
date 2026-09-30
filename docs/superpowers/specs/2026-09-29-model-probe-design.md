@@ -16,13 +16,13 @@ Non-goals: no strict filtering of Dead models out of the picker (they remain sel
 
 ## 2. Decisions (user-confirmed)
 
-| Decision | Choice |
-| --- | --- |
+| Decision            | Choice                                                                                                                                                                |
+| ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Alive determination | Hybrid: existing connectivity test (real 1-token call) as cheap gate, then DSH-style minimal probe (`"Reply with exactly OK."`, maxTokens=8) as authoritative verdict |
-| Picker behavior | DSH parity: dots + health-first ordering; no filtering |
-| Automation | Full DSH parity: observe normal chat errors, 2 health retries before Dead, 30-min Dead recheck, revive on success |
-| Scope | All enabled providers/models in the Host's Environment Registry; ledger per Host, persisted locally |
-| Architecture | Runtime-owned probe engine (Approach A) |
+| Picker behavior     | DSH parity: dots + health-first ordering; no filtering                                                                                                                |
+| Automation          | Full DSH parity: observe normal chat errors, 2 health retries before Dead, 30-min Dead recheck, revive on success                                                     |
+| Scope               | All enabled providers/models in the Host's Environment Registry; ledger per Host, persisted locally                                                                   |
+| Architecture        | Runtime-owned probe engine (Approach A)                                                                                                                               |
 
 ## 3. Architecture and ownership
 
