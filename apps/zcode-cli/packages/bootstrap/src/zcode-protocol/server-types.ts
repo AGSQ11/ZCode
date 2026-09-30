@@ -64,6 +64,11 @@ export interface ZCodeProtocolAgentDependencies {
   syncAccountProviderConfig?: (snapshot: AccountProviderConfigSnapshot) => Promise<boolean>;
   /** 连接测试前主动重读当前进程的 Config Source 并等待 Registry 发布。 */
   refreshProviderRegistry?: (reason: string) => Promise<void>;
+  /**
+   * Model Probe 的只读模型枚举：直接读进程内 Registry 快照，不创建 workspace app、
+   * 不发网络请求。与 GUI picker 同源（ResolvedProviderModel 的 enabled/executable 过滤）。
+   */
+  listRegistryModels?: () => Promise<readonly { providerId: string; modelId: string }[]>;
 }
 
 export type ZCodeProtocolAgentResolvedDependencies = ZCodeProtocolAgentDependencies & {

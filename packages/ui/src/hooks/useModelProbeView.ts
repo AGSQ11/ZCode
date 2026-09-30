@@ -31,11 +31,15 @@ export function useModelProbeView(
       return;
     }
     let cancelled = false;
+    let latestProbing = false;
     setState((prev) => ({ ...prev, loading: true, error: null }));
     const read = (): void => {
       void service.getView().then(
         (view) => {
-          if (!cancelled) setState({ view, loading: false, error: null });
+          if (!cancelled) {
+            latestProbing = (view.probingProviderIds.length ?? 0) > 0;
+            setState({ view, loading: false, error: null });
+          }
         },
         (error: unknown) => {
           if (!cancelled) {
@@ -49,10 +53,19 @@ export function useModelProbeView(
       );
     };
     read();
-    const timer = setInterval(read, 1000);
+    // 探测进行中短轮询刷新进度；静止状态慢轮询兜底（引擎无推送事件面）。
+    const interval = () => (latestProbing ? 1000 : 5000);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const schedule = (): void => {
+      timer = setTimeout(() => {
+        read();
+        schedule();
+      }, interval());
+    };
+    schedule();
     return () => {
       cancelled = true;
-      clearInterval(timer);
+      if (timer !== undefined) clearTimeout(timer);
     };
   }, [service, hasTarget, reloadVersion]);
 

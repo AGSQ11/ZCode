@@ -4435,6 +4435,13 @@ export function createZCodeAgentService(
 
     async modelProbeGetView(params: ZCodeAgentModelProbeGetViewParams) {
       const client = await getClient(params);
+      // 与 testModelConnectivity 同一条前置链：探测要走正式 Provider Registry，
+      // 不先把账号层配置同步进 CLI 进程，syncRegistryModels 会因拿不到配置而永久挂起。
+      await ensureAccountProviderConfigSynced({
+        client,
+        reason: "provider_model_probe_get_view",
+        workspace: params,
+      });
       return client.request(
         zcodeProtocolMethods.providerModelProbeGetView,
         { workspace: buildWorkspaceRef(params) },
@@ -4445,6 +4452,11 @@ export function createZCodeAgentService(
 
     async modelProbeProbeAll(params: ZCodeAgentModelProbeProbeAllParams) {
       const client = await getClient(params);
+      await ensureAccountProviderConfigSynced({
+        client,
+        reason: "provider_model_probe_probe_all",
+        workspace: params,
+      });
       return client.request(
         zcodeProtocolMethods.providerModelProbeProbeAll,
         {
@@ -4458,6 +4470,11 @@ export function createZCodeAgentService(
 
     async modelProbeUpdateConfig(params: ZCodeAgentModelProbeUpdateConfigParams) {
       const client = await getClient(params);
+      await ensureAccountProviderConfigSynced({
+        client,
+        reason: "provider_model_probe_update_config",
+        workspace: params,
+      });
       return client.request(
         zcodeProtocolMethods.providerModelProbeUpdateConfig,
         { workspace: buildWorkspaceRef(params), config: params.config },

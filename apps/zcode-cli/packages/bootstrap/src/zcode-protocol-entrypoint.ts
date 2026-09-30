@@ -291,6 +291,18 @@ export async function runZCodeProtocolAgent(
       refreshProviderRegistry: async (reason) => {
         await activeProviderRegistryRuntime.runtime.registryService.refresh(reason);
       },
+      listRegistryModels: async () => {
+        // 只读已发布快照（无网络）；没有快照时返回空，由调用方决定是否先 refresh。
+        const snapshot = activeProviderRegistryRuntime.runtime.registryService.getSnapshot();
+        if (!snapshot) return [];
+        return snapshot.resolution.resolvedProviders
+          .filter((provider) => provider.enabled)
+          .flatMap((provider) =>
+            provider.models
+              .filter((model) => model.enabled && model.executable)
+              .map((model) => ({ providerId: provider.providerId, modelId: model.modelId })),
+          );
+      },
       version: options.version,
     }));
     officialMcpAuthContext = server.officialMcpAuthRequestContext;

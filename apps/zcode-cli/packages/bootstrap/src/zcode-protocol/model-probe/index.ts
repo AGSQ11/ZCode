@@ -62,11 +62,49 @@ export function getProbeEngine(
   return engine;
 }
 
+// 引擎重水合：进程重启后从账本恢复历史状态。每个 workspaceKey 只做一次，用 Promise 去重并发。
+const hydratedWorkspaceKeys = new WeakMap<
+  ZCodeProtocolAgentServerContext,
+  Map<string, Promise<void>>
+>();
+
+async function hydrateEngineFromLedger(
+  context: ZCodeProtocolAgentServerContext,
+  workspace: ZCodeWorkspaceRef,
+  engine: ModelProbeEngine,
+): Promise<void> {
+  let perWorkspace = hydratedWorkspaceKeys.get(context);
+  if (!perWorkspace) {
+    perWorkspace = new Map();
+    hydratedWorkspaceKeys.set(context, perWorkspace);
+  }
+  let pending = perWorkspace.get(workspace.workspaceKey);
+  if (!pending) {
+    pending = (async () => {
+      const persisted = await getSharedLedgerStore(context).list(workspace.workspaceKey);
+      if (persisted.length > 0) await engine.ingestEntries(persisted);
+    })();
+    perWorkspace.set(workspace.workspaceKey, pending);
+  }
+  await pending;
+}
+
 export async function syncRegistryModels(
   context: ZCodeProtocolAgentServerContext,
   workspace: ZCodeWorkspaceRef,
   engine: ModelProbeEngine,
 ): Promise<void> {
+  await hydrateEngineFromLedger(context, workspace, engine);
+  // 从进程内 Registry 快照枚举模型：廉价、无网络、无 workspace app。
+  // 之前的实现每次 getView 都 refreshProviderRegistry + createWorkspaceZCodeApp，
+  // 设置页 1s 轮询把 CLI 压垮、触发 180s 客户端超时，进程被回收、后台探测全部丢失。
+  if (context.deps.listRegistryModels) {
+    const models = await context.deps.listRegistryModels();
+    engine.pruneTo(models);
+    await engine.registerModels(models);
+    return;
+  }
+  // Fallback：没有注入枚举能力时才退回 workspace app（旧行为，仅测试/嵌入环境）。
   await context.deps.refreshProviderRegistry?.("model-probe");
   const active = Array.from(context.sessions.values()).find(
     (record) => record.workspace.workspaceKey === workspace.workspaceKey,

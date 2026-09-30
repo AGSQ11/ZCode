@@ -218,7 +218,16 @@ export function createModelProbeEngine(deps: {
         while (cursor < queue.length && !disposed) {
           const item = queue[cursor];
           cursor += 1;
-          await runProbe({ providerId: item.providerId, modelId: item.modelId }, "manual-probe");
+          const key = { providerId: item.providerId, modelId: item.modelId };
+          // DSH 手工探测策略：一次动作内最多 3 次尝试（初次 + 2 重试）才判 Dead。
+          // 之前 probeAll 每个模型只探一次，一次瞬时超时就留 attemptCount=1 且永不收敛。
+          let attempts = 0;
+          while (!disposed && attempts < MODEL_PROBE_DEFAULTS.failureThreshold) {
+            attempts += 1;
+            await runProbe(key, "manual-probe");
+            const latest = entries.get(keyOf(key));
+            if (latest?.status === "alive") break;
+          }
         }
       });
       await Promise.all(workers);
