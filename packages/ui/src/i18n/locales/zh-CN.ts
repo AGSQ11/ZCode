@@ -2400,6 +2400,10 @@ const zhCN: Record<string, string> = {
   "settings.modelProbe.concurrency.description":
     "执行全部探测时并行探测的模型数量。上限为本机 CPU 核心数。",
   "settings.modelProbe.minutes": "分钟",
+  "settings.general.systemPrompt.label": "自定义系统提示词",
+  "settings.general.systemPrompt.description":
+    "覆盖默认的 Agent 身份与行为指令。设置后替换系统提示词主体，保留 CLI 前缀、技能和日期段。留空则使用默认提示词。",
+  "settings.general.systemPrompt.placeholder": "输入自定义系统提示词以覆盖默认 Agent 行为...",
   "settings.modelProbe.title": "模型探测",
   "settings.modelProbe.refresh": "刷新",
   "settings.modelProbe.probeAll": "全部探测",

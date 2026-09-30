@@ -147,6 +147,8 @@ interface SessionStartupPreferences {
   modelContextBudgetStrategy: ZCodeModelContextBudgetStrategy;
   nativeSearchEnhancementsEnabled: boolean;
   resolveInitialBashShellSelection: () => Promise<ExecutionShellSelection | undefined>;
+  /** 全局自定义系统提示词；缺席表示使用默认 prompt 体系。 */
+  systemPrompt?: string;
 }
 
 type SessionStartupPreferencesSource =
@@ -3256,6 +3258,8 @@ async function resolveSessionStartupPreferences(
       memoryEnabled: source.parent.memoryEnabled,
       modelContextBudgetStrategy: DEFAULT_ZCODE_MODEL_CONTEXT_BUDGET_STRATEGY,
       nativeSearchEnhancementsEnabled: source.parent.nativeSearchEnhancementsEnabled,
+      // 子会话继承父会话的系统提示词覆盖，保持 persona 一致性。
+      ...(source.parent.systemPrompt ? { systemPrompt: source.parent.systemPrompt } : {}),
       resolveInitialBashShellSelection: async () => inheritedShellSelection,
     };
   }
@@ -3274,6 +3278,9 @@ async function resolveSessionStartupPreferences(
     memoryEnabled: runtimePreferences.memoryEnabled,
     modelContextBudgetStrategy: DEFAULT_ZCODE_MODEL_CONTEXT_BUDGET_STRATEGY,
     nativeSearchEnhancementsEnabled: runtimePreferences.nativeSearchEnhancementsEnabled,
+    ...(runtimePreferences.systemPrompt?.trim()
+      ? { systemPrompt: runtimePreferences.systemPrompt.trim() }
+      : {}),
     resolveInitialBashShellSelection: async () => {
       const executionPreferences = await requestSessionRuntimePreferences(
         context,
@@ -3364,6 +3371,9 @@ async function createRecord(
       toolDisallowlist: "toolDenylist" in params ? params.toolDenylist : undefined,
       nativeSearchEnhancementsEnabled: startupPreferences.nativeSearchEnhancementsEnabled,
       modelContextBudgetStrategy: startupPreferences.modelContextBudgetStrategy,
+      // 全局自定义系统提示词：runtime-materialization 阶段从 Host AppSettings 读取，
+      // 注入后 core context builder 用它替换默认 stable 体系（保留前缀/技能/日期）。
+      ...(startupPreferences.systemPrompt ? { systemPrompt: startupPreferences.systemPrompt } : {}),
       // Memory Settings 是现有 CLI features.memory/use 之外的总开关。只在关闭时
       // 写入 override，避免开启值反向覆盖用户已有的 CLI 禁用配置。
       ...(startupPreferences.memoryEnabled ? {} : { memory: { enabled: false } }),
@@ -3425,6 +3435,7 @@ async function createRecord(
     memoryEnabled: startupPreferences.memoryEnabled,
     modelContextBudgetStrategy: startupPreferences.modelContextBudgetStrategy,
     nativeSearchEnhancementsEnabled: startupPreferences.nativeSearchEnhancementsEnabled,
+    ...(startupPreferences.systemPrompt ? { systemPrompt: startupPreferences.systemPrompt } : {}),
     ...(parentSessionId ? { parentSessionId } : {}),
     persistence: "persistence" in params ? (params.persistence ?? "immediate") : "immediate",
     protocolEventSequences: new Map(),

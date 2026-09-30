@@ -2553,6 +2553,11 @@ const enUS: Record<string, string> = {
   "settings.modelProbe.concurrency.description":
     "How many models are probed in parallel when you run Probe all. Capped at your CPU core count.",
   "settings.modelProbe.minutes": "min",
+  "settings.general.systemPrompt.label": "Custom system prompt",
+  "settings.general.systemPrompt.description":
+    "Override the default Agent identity and behavior instructions. When set, replaces the stable system prompt body while keeping the CLI prefix, skills, and date sections. Leave empty to use the default.",
+  "settings.general.systemPrompt.placeholder":
+    "Enter a custom system prompt to override the default Agent behavior...",
   "settings.modelProbe.title": "Model Probe",
   "settings.modelProbe.refresh": "Refresh",
   "settings.modelProbe.probeAll": "Probe all",

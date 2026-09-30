@@ -90,6 +90,8 @@ export interface ZCodeProtocolSessionRecord {
   memoryEnabled: boolean;
   nativeSearchEnhancementsEnabled: boolean;
   modelContextBudgetStrategy: ZCodeModelContextBudgetStrategy;
+  /** 全局自定义系统提示词；子会话继承父会话时读取。 */
+  systemPrompt?: string;
   createdAt: number;
   deliveryKind?: ZCodeDeliveryKind;
   /**
