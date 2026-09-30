@@ -2540,6 +2540,16 @@ const enUS: Record<string, string> = {
   "settings.previewBadge.light": "Light",
   "settings.previewBadge.dark": "Dark",
   "settings.modelProviderTitle": "Model settings",
+  "settings.modelProbe.overview.label": "Model health monitoring",
+  "settings.modelProbe.overview.description":
+    "Probes every enabled model with a minimal completion and keeps a persistent Alive/Dead ledger. Health also updates automatically from your normal chat traffic.",
+  "settings.modelProbe.deadRecheck.label": "Dead-model recheck",
+  "settings.modelProbe.deadRecheck.description":
+    "Dead models are re-probed in the background at this interval and revive immediately on any successful request.",
+  "settings.modelProbe.concurrency.label": "Probe concurrency",
+  "settings.modelProbe.concurrency.description":
+    "How many models are probed in parallel when you run Probe all.",
+  "settings.modelProbe.minutes": "min",
   "settings.modelProbe.title": "Model Probe",
   "settings.modelProbe.refresh": "Refresh",
   "settings.modelProbe.probeAll": "Probe all",

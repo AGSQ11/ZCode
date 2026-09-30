@@ -1,12 +1,13 @@
 import { useEffect, useState } from "react";
 import type { ZCodeModelProbeConfig, ZCodeModelProbeView } from "@zcode/shared";
 import { useWorkspaceServicesResolution } from "@/hooks/useWorkspaceServices.js";
-import { logger } from "@/logger.js";
 
 export interface ModelProbeViewRead {
   view: ZCodeModelProbeView | null;
   loading: boolean;
   error: Error | null;
+  /** Host 端仍有探测在跑（来自引擎 probingProviderIds），驱动按钮禁用与短轮询。 */
+  probing: boolean;
   reload(): void;
   probeAll(config?: Partial<ZCodeModelProbeConfig>): Promise<void>;
 }
@@ -37,7 +38,7 @@ export function useModelProbeView(
       void service.getView().then(
         (view) => {
           if (!cancelled) {
-            latestProbing = (view.probingProviderIds.length ?? 0) > 0;
+            latestProbing = (view.probingProviderIds?.length ?? 0) > 0;
             setState({ view, loading: false, error: null });
           }
         },
@@ -71,6 +72,8 @@ export function useModelProbeView(
 
   return {
     ...state,
+    probing:
+      state.view?.probingProviderIds?.length != null && state.view.probingProviderIds.length > 0,
     reload: () => setReloadVersion((value) => value + 1),
     probeAll: (config?: Partial<ZCodeModelProbeConfig>) =>
       service?.probeAll(config) ?? Promise.resolve(),

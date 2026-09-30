@@ -2388,6 +2388,15 @@ const zhCN: Record<string, string> = {
   "settings.previewBadge.light": "浅色",
   "settings.previewBadge.dark": "深色",
   "settings.modelProviderTitle": "模型设置",
+  "settings.modelProbe.overview.label": "模型健康监控",
+  "settings.modelProbe.overview.description":
+    "用最小补全请求探测每个已启用模型，并维护持久的存活/失效账本。健康状态也会随日常会话流量自动更新。",
+  "settings.modelProbe.deadRecheck.label": "失效模型复查",
+  "settings.modelProbe.deadRecheck.description":
+    "失效模型会按此间隔在后台自动复查；任何一次成功请求都会立即让其复活。",
+  "settings.modelProbe.concurrency.label": "探测并发",
+  "settings.modelProbe.concurrency.description": "执行全部探测时并行探测的模型数量。",
+  "settings.modelProbe.minutes": "分钟",
   "settings.modelProbe.title": "模型探测",
   "settings.modelProbe.refresh": "刷新",
   "settings.modelProbe.probeAll": "全部探测",
