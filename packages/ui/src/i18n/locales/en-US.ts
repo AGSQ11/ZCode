@@ -2546,9 +2546,12 @@ const enUS: Record<string, string> = {
   "settings.modelProbe.deadRecheck.label": "Dead-model recheck",
   "settings.modelProbe.deadRecheck.description":
     "Dead models are re-probed in the background at this interval and revive immediately on any successful request.",
+  "settings.modelProbe.timeout.label": "Probe timeout",
+  "settings.modelProbe.timeout.description":
+    "How long to wait for each model's probe response before giving up.",
   "settings.modelProbe.concurrency.label": "Probe concurrency",
   "settings.modelProbe.concurrency.description":
-    "How many models are probed in parallel when you run Probe all.",
+    "How many models are probed in parallel when you run Probe all. Capped at your CPU core count.",
   "settings.modelProbe.minutes": "min",
   "settings.modelProbe.title": "Model Probe",
   "settings.modelProbe.refresh": "Refresh",

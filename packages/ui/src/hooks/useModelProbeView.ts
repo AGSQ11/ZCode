@@ -10,6 +10,7 @@ export interface ModelProbeViewRead {
   probing: boolean;
   reload(): void;
   probeAll(config?: Partial<ZCodeModelProbeConfig>): Promise<void>;
+  updateConfig(config: ZCodeModelProbeConfig): Promise<void>;
 }
 
 export function useModelProbeView(
@@ -77,5 +78,8 @@ export function useModelProbeView(
     reload: () => setReloadVersion((value) => value + 1),
     probeAll: (config?: Partial<ZCodeModelProbeConfig>) =>
       service?.probeAll(config) ?? Promise.resolve(),
+    updateConfig: async (config: ZCodeModelProbeConfig) => {
+      await service?.updateConfig(config);
+    },
   };
 }
