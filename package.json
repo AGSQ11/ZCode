@@ -1,6 +1,6 @@
 {
   "name": "zcode",
-  "version": "3.14.3-probemodels",
+  "version": "3.15.0-probemodels",
   "private": true,
   "license": "Apache-2.0",
   "type": "module",
