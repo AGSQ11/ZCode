@@ -41,7 +41,16 @@ export async function listProviderRemoteModels(
   const params = parseParams(zcodeProviderListRemoteModelsParamsSchema, rawParams);
   const connection = context.deps.getRegistryProviderConnection?.(params.providerId);
   if (!connection) {
-    throw new ProtocolRequestError(-32602, `Provider 不存在或无法连接: ${params.providerId}`);
+    throw new ProtocolRequestError(
+      -32602,
+      `Provider 不存在、未启用或为账号套餐型 Provider（不支持动态拉取模型）: ${params.providerId}`,
+    );
+  }
+  if (!connection.apiKey) {
+    throw new ProtocolRequestError(
+      -32602,
+      `Provider 未配置 API Key，无法拉取模型列表: ${params.providerId}`,
+    );
   }
   const base = connection.baseUrl.replace(/\/+$/u, "");
   // 路径兼容：不同 Provider 的 baseUrl 风格不一（有的自带 /v1 有的不带）。

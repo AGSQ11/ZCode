@@ -513,27 +513,29 @@ export function ProviderModelsSection({
           {intl.formatMessage({ id: "settings.modelProvider.models" })}
         </span>
         <div className="flex flex-wrap items-center gap-2">
-          <Button
-            type="button"
-            variant="outline"
-            size="default"
-            className="rounded-lg"
-            data-testid="model-provider-fetch-all-models"
-            disabled={fetchingAll}
-            onClick={() => void handleFetchAllModels()}
-          >
-            {fetchingAll ? (
-              <LoaderIcon data-icon="inline-start" className="animate-spin" aria-hidden="true" />
-            ) : (
-              <DownloadIcon data-icon="inline-start" aria-hidden="true" />
-            )}
-            {fetchingAll && fetchAllProgress
-              ? intl.formatMessage(
-                  { id: "settings.modelProvider.fetchingAll" },
-                  { added: fetchAllProgress.added, total: fetchAllProgress.total },
-                )
-              : intl.formatMessage({ id: "settings.modelProvider.fetchAllModels" })}
-          </Button>
+          {providerAccess?.type !== "zhipu-account" ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="default"
+              className="rounded-lg"
+              data-testid="model-provider-fetch-all-models"
+              disabled={fetchingAll}
+              onClick={() => void handleFetchAllModels()}
+            >
+              {fetchingAll ? (
+                <LoaderIcon data-icon="inline-start" className="animate-spin" aria-hidden="true" />
+              ) : (
+                <DownloadIcon data-icon="inline-start" aria-hidden="true" />
+              )}
+              {fetchingAll && fetchAllProgress
+                ? intl.formatMessage(
+                    { id: "settings.modelProvider.fetchingAll" },
+                    { added: fetchAllProgress.added, total: fetchAllProgress.total },
+                  )
+                : intl.formatMessage({ id: "settings.modelProvider.fetchAllModels" })}
+            </Button>
+          ) : null}
           <Button
             type="button"
             variant="secondary"

@@ -237,6 +237,8 @@ export class AgentRuntime {
       ...config,
       modelContextBudgetStrategy: DEFAULT_ZCODE_MODEL_CONTEXT_BUDGET_STRATEGY,
     });
+    // 保存初始传入的全局/基线 prompt；当会话级覆盖清除时恢复该基线。
+    runtime.baseSystemPrompt = config.systemPrompt?.trim() || undefined;
     Object.assign(this.config, resolveExecutionState(config));
     this.agentTelemetry = new RuntimeTelemetryFacade({
       agentName: config.agentName,

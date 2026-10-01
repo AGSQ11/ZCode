@@ -72,9 +72,10 @@ export function updateConfig(
     }
   }
   if (patch.systemPrompt !== undefined) {
-    // 空串清除覆盖，恢复默认 prompt 体系；非空即会话级覆盖（优先于全局设置）。
+    // 空串清除覆盖：恢复初始传入的全局 AppSettings 基线，而不是错误地回退到系统硬编码默认。
+    // 非空即会话级显式覆盖（优先于全局基线）。
     const normalized = patch.systemPrompt.trim();
-    this.config.systemPrompt = normalized ? patch.systemPrompt : undefined;
+    this.config.systemPrompt = normalized ? patch.systemPrompt : this.baseSystemPrompt;
     if (!this.activeTurn) {
       rebuildContextPrefix(this);
     }

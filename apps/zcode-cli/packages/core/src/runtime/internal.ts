@@ -62,6 +62,8 @@ export interface AgentRuntimeInternal
   sessionId: SessionId;
   turnNumber: number;
   config: AgentRuntimeConfig;
+  /** 全局配置基线；会话级覆盖被清除时恢复此值，避免丢失设置页全局 prompt。 */
+  baseSystemPrompt?: string;
   permissionService: PermissionService;
   permissionBroker: PermissionBrokerPort;
   toolScheduler: ToolScheduler;
