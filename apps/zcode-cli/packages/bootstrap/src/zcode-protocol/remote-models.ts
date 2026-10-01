@@ -44,26 +44,52 @@ export async function listProviderRemoteModels(
     throw new ProtocolRequestError(-32602, `Provider 不存在或无法连接: ${params.providerId}`);
   }
   const base = connection.baseUrl.replace(/\/+$/u, "");
-  const url = `${base}/models`;
-  let response: Response;
-  try {
-    response = await fetch(url, {
-      method: "GET",
-      headers: {
-        accept: "application/json",
-        ...(connection.apiKey ? { authorization: `Bearer ${connection.apiKey}` } : {}),
-        ...(connection.headers ?? {}),
-      },
-      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-    });
-  } catch (error) {
+  // 路径兼容：不同 Provider 的 baseUrl 风格不一（有的自带 /v1 有的不带）。
+  // 按优先级尝试候选 URL，第一个 200 即采用；全 404 才报错。
+  const candidates = [
+    `${base}/models`,
+    base.endsWith("/v1") ? `${base.slice(0, -3)}/models` : `${base}/v1/models`,
+    `${base}/api/models`,
+  ];
+  let response: Response | undefined;
+  let lastStatus = 0;
+  for (const url of candidates) {
+    try {
+      const authHeaders: Record<string, string> = {};
+      if (connection.apiKey) {
+        authHeaders.authorization = `Bearer ${connection.apiKey}`;
+        // Anthropic 风格端点使用 x-api-key 请求头
+        authHeaders["x-api-key"] = connection.apiKey;
+        authHeaders["anthropic-version"] = "2023-06-01";
+      }
+      const res = await fetch(url, {
+        method: "GET",
+        headers: {
+          accept: "application/json",
+          ...authHeaders,
+          ...(connection.headers ?? {}),
+        },
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      });
+      if (res.ok) {
+        response = res;
+        break;
+      }
+      lastStatus = res.status;
+      // 401/403 属于认证问题，换路径无意义；直接中断
+      if (res.status === 401 || res.status === 403) {
+        response = res;
+        break;
+      }
+    } catch {
+      // 网络/超时继续尝试下一个候选
+    }
+  }
+  if (!response || !response.ok) {
     throw new ProtocolRequestError(
       -32603,
-      `拉取模型列表失败: ${error instanceof Error ? error.message : String(error)}`,
+      `Provider 返回 ${response ? response.status : lastStatus || "无法连接"}（已尝试: ${candidates.join(", ")}）`,
     );
-  }
-  if (!response.ok) {
-    throw new ProtocolRequestError(-32603, `Provider 返回 ${response.status}`);
   }
   const body = (await response.json().catch(() => undefined)) as unknown;
   return { models: extractRemoteModelIds(body).map((id) => ({ id })) };
