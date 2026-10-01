@@ -62,6 +62,8 @@ export interface AgentRuntimeInternal
   sessionId: SessionId;
   turnNumber: number;
   config: AgentRuntimeConfig;
+  /** 全局配置基线；会话级覆盖被清除时恢复此值，避免丢失设置页全局 prompt。 */
+  baseSystemPrompt?: string;
   permissionService: PermissionService;
   permissionBroker: PermissionBrokerPort;
   toolScheduler: ToolScheduler;
@@ -100,6 +102,10 @@ export interface AgentRuntimeInternal
   residencyBlockingWorkCount: number;
   mcpInitialized: boolean;
   mcpToolsRegistered: boolean;
+  /** 初始化 / 上次刷新时注册的 MCP 工具名与集合签名。 */
+  registeredMcpToolNames?: string[];
+  mcpToolsSignature?: string;
+  mcpToolListRevision?: number;
   subagentPort?: SubagentPort;
   dynamicWorkflowRunPort?: DynamicWorkflowRunPort;
   modelCatalogPort?: ModelCatalogPort;

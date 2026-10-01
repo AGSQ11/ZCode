@@ -34,6 +34,7 @@ type InputFacade = Pick<
   | "reorderQueueItem"
   | "setQueueAutoDrain"
   | "setFollowupMode"
+  | "setSystemPrompt"
   | "sendInput"
   | "steerTurn"
   | "submitPrompt"
@@ -365,6 +366,10 @@ export function createInputFacade(deps: CreateInputFacadeDeps): InputFacade {
         mode,
         traceContext: options?.traceContext ?? deps.traceContext,
       });
+    },
+    setSystemPrompt: async (prompt) => {
+      // 会话级系统提示词覆盖：空串清除覆盖（回退全局/默认 prompt 体系）。
+      deps.runtime.updateConfig({ systemPrompt: prompt ?? "" });
     },
     submitPrompt: async (prompt, options) => {
       const promptInput = normalizePromptInput(prompt);

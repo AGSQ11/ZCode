@@ -1,5 +1,5 @@
-import { memo, useCallback, useMemo } from "react";
-import { LightbulbIcon, XIcon, ChevronDownIcon } from "lucide-react";
+import { memo, useCallback, useMemo, useState } from "react";
+import { LightbulbIcon, XIcon, ChevronDownIcon, MessageSquareTextIcon } from "lucide-react";
 import {
   TID_CHAT_MODE_SELECT_TRIGGER,
   TID_CHAT_MODE_SELECT_ITEM,
@@ -14,11 +14,20 @@ import {
   DropdownMenuTrigger,
   DropdownMenuContent,
   DropdownMenuCheckboxItem,
+  DropdownMenuItem,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu.js";
 import { Button } from "@/components/ui/button.js";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog.js";
 import { cn } from "@/components/lib/utils.js";
 import {
   getModeOptionDisplayLabel,
@@ -45,6 +54,8 @@ function V4ComposerModeSwitchImpl({
   activeConfigPicker,
   onConfigPickerOpenChange,
   onSwitchMode,
+  onSetSystemPrompt,
+  activeSystemPrompt,
 }: Pick<
   V4ComposerToolbarProps,
   | "workspacePath"
@@ -55,8 +66,12 @@ function V4ComposerModeSwitchImpl({
   | "activeConfigPicker"
   | "onConfigPickerOpenChange"
   | "onSwitchMode"
+  | "onSetSystemPrompt"
+  | "activeSystemPrompt"
 >) {
   const { intl } = useZCodeIntl();
+  const [systemPromptOpen, setSystemPromptOpen] = useState(false);
+  const [systemPromptDraft, setSystemPromptDraft] = useState<string | null>(null);
   const displayProvider = provider ?? ZCODE_AGENT_PROVIDER;
   const modeShortcutLabel = useShortcutCommandLabel("cycleSessionMode");
   const modes = getZCodeAgentAvailableModes();
@@ -183,8 +198,81 @@ function V4ComposerModeSwitchImpl({
               );
             })}
           </DropdownMenuRadioGroup>
+          {onSetSystemPrompt ? (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onSelect={(event) => {
+                  event.preventDefault();
+                  setSystemPromptDraft(activeSystemPrompt ?? "");
+                  setSystemPromptOpen(true);
+                }}
+                data-testid="v4-composer-system-prompt-item"
+                className="min-h-13 items-start gap-3 py-2"
+              >
+                <MessageSquareTextIcon className="mt-0.5 size-4.5 shrink-0" />
+                <span className="flex min-w-0 flex-col gap-0.5">
+                  <span>
+                    {intl.formatMessage({ id: "chat.systemPrompt.label" })}
+                    {activeSystemPrompt ? (
+                      <span className="ml-1.5 text-ui-sm text-foreground-subtle">
+                        {intl.formatMessage({ id: "chat.systemPrompt.active" })}
+                      </span>
+                    ) : null}
+                  </span>
+                  <span className="text-ui-sm text-foreground-subtle">
+                    {intl.formatMessage({ id: "chat.systemPrompt.description" })}
+                  </span>
+                </span>
+              </DropdownMenuItem>
+            </>
+          ) : null}
         </DropdownMenuContent>
       </DropdownMenu>
+      {onSetSystemPrompt ? (
+        <Dialog
+          open={systemPromptOpen}
+          onOpenChange={(open) => {
+            if (!open) setSystemPromptOpen(false);
+          }}
+        >
+          <DialogContent className="max-w-lg">
+            <DialogHeader>
+              <DialogTitle>{intl.formatMessage({ id: "chat.systemPrompt.label" })}</DialogTitle>
+              <DialogDescription>
+                {intl.formatMessage({ id: "chat.systemPrompt.dialogDescription" })}
+              </DialogDescription>
+            </DialogHeader>
+            <textarea
+              className="h-40 w-full resize-y rounded-lg border border-border bg-background px-3 py-2 text-ui-base text-foreground placeholder:text-foreground-subtlest focus:outline-none focus:ring-2 focus:ring-input-border-focused/30"
+              placeholder={intl.formatMessage({ id: "chat.systemPrompt.placeholder" })}
+              value={systemPromptDraft ?? ""}
+              onChange={(event) => setSystemPromptDraft(event.target.value)}
+            />
+            <DialogFooter>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  onSetSystemPrompt(undefined);
+                  setSystemPromptOpen(false);
+                }}
+              >
+                {intl.formatMessage({ id: "chat.systemPrompt.clear" })}
+              </Button>
+              <Button
+                size="sm"
+                onClick={() => {
+                  onSetSystemPrompt(systemPromptDraft ?? undefined);
+                  setSystemPromptOpen(false);
+                }}
+              >
+                {intl.formatMessage({ id: "chat.systemPrompt.apply" })}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      ) : null}
       {draftConfig?.planEnabled && (
         <span data-testid="v4-composer-plan-marker" className="flex items-center gap-1">
           <span

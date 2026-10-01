@@ -120,6 +120,7 @@ import {
 } from "./subagent-session-query.js";
 import { runSessionModelConfigMutation } from "../zcode-protocol-v4/model-config-mutation.js";
 import { runWithSessionResidencyFinalization } from "./session-residency.js";
+import { abortMcpUiToolCallsForSession, clearMcpUiAppToolsForSession } from "./mcp-ui/index.js";
 
 const PLAN_MODE_GOAL_CONTINUATION_SKIPPED_MESSAGE = "Plan mode 下已记录 goal，但不会自动继续。";
 const SLOW_SNAPSHOT_LOG_THRESHOLD_MS = 1000;
@@ -146,6 +147,8 @@ interface SessionStartupPreferences {
   modelContextBudgetStrategy: ZCodeModelContextBudgetStrategy;
   nativeSearchEnhancementsEnabled: boolean;
   resolveInitialBashShellSelection: () => Promise<ExecutionShellSelection | undefined>;
+  /** 全局自定义系统提示词；缺席表示使用默认 prompt 体系。 */
+  systemPrompt?: string;
 }
 
 type SessionStartupPreferencesSource =
@@ -2727,6 +2730,12 @@ export async function closeSession(context: ZCodeProtocolAgentServerContext, raw
     return { closed: false };
   }
   record.unsubscribe?.();
+  // 会话关闭时 abort 仍在进行的插件 UI 工具调用，登记表不留孤儿。
+  abortMcpUiToolCallsForSession(params.sessionId);
+  // App-Provided Tools：结束本会话全部待执行的页面调用并丢弃登记。
+  clearMcpUiAppToolsForSession(context, params.sessionId);
+  // 清掉本会话全部资源订阅（refcount 归零的 uri 才真正向 server 退订）。
+  await record.app.unsubscribeMcpResourcesForUi?.(`${params.sessionId}|`).catch(() => 0);
   await record.app.close?.();
   // v4 通道：会话关闭同时清 publisher / 订阅调度；重开会话走 snapshot 冷启动。
   // dispose 必须先于注册表删除--gateway 靠 getSessionWorkspaceId
@@ -3249,6 +3258,8 @@ async function resolveSessionStartupPreferences(
       memoryEnabled: source.parent.memoryEnabled,
       modelContextBudgetStrategy: DEFAULT_ZCODE_MODEL_CONTEXT_BUDGET_STRATEGY,
       nativeSearchEnhancementsEnabled: source.parent.nativeSearchEnhancementsEnabled,
+      // 子会话继承父会话的系统提示词覆盖，保持 persona 一致性。
+      ...(source.parent.systemPrompt ? { systemPrompt: source.parent.systemPrompt } : {}),
       resolveInitialBashShellSelection: async () => inheritedShellSelection,
     };
   }
@@ -3267,6 +3278,9 @@ async function resolveSessionStartupPreferences(
     memoryEnabled: runtimePreferences.memoryEnabled,
     modelContextBudgetStrategy: DEFAULT_ZCODE_MODEL_CONTEXT_BUDGET_STRATEGY,
     nativeSearchEnhancementsEnabled: runtimePreferences.nativeSearchEnhancementsEnabled,
+    ...(runtimePreferences.systemPrompt?.trim()
+      ? { systemPrompt: runtimePreferences.systemPrompt.trim() }
+      : {}),
     resolveInitialBashShellSelection: async () => {
       const executionPreferences = await requestSessionRuntimePreferences(
         context,
@@ -3357,6 +3371,9 @@ async function createRecord(
       toolDisallowlist: "toolDenylist" in params ? params.toolDenylist : undefined,
       nativeSearchEnhancementsEnabled: startupPreferences.nativeSearchEnhancementsEnabled,
       modelContextBudgetStrategy: startupPreferences.modelContextBudgetStrategy,
+      // 全局自定义系统提示词：runtime-materialization 阶段从 Host AppSettings 读取，
+      // 注入后 core context builder 用它替换默认 stable 体系（保留前缀/技能/日期）。
+      ...(startupPreferences.systemPrompt ? { systemPrompt: startupPreferences.systemPrompt } : {}),
       // Memory Settings 是现有 CLI features.memory/use 之外的总开关。只在关闭时
       // 写入 override，避免开启值反向覆盖用户已有的 CLI 禁用配置。
       ...(startupPreferences.memoryEnabled ? {} : { memory: { enabled: false } }),
@@ -3418,6 +3435,7 @@ async function createRecord(
     memoryEnabled: startupPreferences.memoryEnabled,
     modelContextBudgetStrategy: startupPreferences.modelContextBudgetStrategy,
     nativeSearchEnhancementsEnabled: startupPreferences.nativeSearchEnhancementsEnabled,
+    ...(startupPreferences.systemPrompt ? { systemPrompt: startupPreferences.systemPrompt } : {}),
     ...(parentSessionId ? { parentSessionId } : {}),
     persistence: "persistence" in params ? (params.persistence ?? "immediate") : "immediate",
     protocolEventSequences: new Map(),

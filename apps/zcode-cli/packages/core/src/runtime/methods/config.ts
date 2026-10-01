@@ -47,7 +47,10 @@ export async function setExecutionState(
 
 export function updateConfig(
   this: AgentRuntimeInternal,
-  patch: Pick<AgentRuntimeConfig, "mode" | "planEnabled" | "language" | "outputStyle">,
+  patch: Pick<AgentRuntimeConfig, "mode" | "planEnabled" | "language" | "outputStyle"> & {
+    /** 会话级系统提示词覆盖；undefined 表示不改，空串表示清除覆盖。 */
+    systemPrompt?: string;
+  },
 ): void {
   if (patch.mode !== undefined || patch.planEnabled !== undefined) {
     const previous = resolveExecutionState(this.config);
@@ -64,6 +67,15 @@ export function updateConfig(
   }
   if ("outputStyle" in patch) {
     this.config.outputStyle = patch.outputStyle;
+    if (!this.activeTurn) {
+      rebuildContextPrefix(this);
+    }
+  }
+  if (patch.systemPrompt !== undefined) {
+    // 空串清除覆盖：恢复初始传入的全局 AppSettings 基线，而不是错误地回退到系统硬编码默认。
+    // 非空即会话级显式覆盖（优先于全局基线）。
+    const normalized = patch.systemPrompt.trim();
+    this.config.systemPrompt = normalized ? patch.systemPrompt : this.baseSystemPrompt;
     if (!this.activeTurn) {
       rebuildContextPrefix(this);
     }
@@ -170,7 +182,7 @@ export function subscribeEvents(this: AgentRuntimeInternal, sink: SessionEventSi
  *
  * 在 class 外构造的子 runtime（bootstrap 的 dwf actor / legacy script workflow）必须与父
  * runtime 共享同一个 store，否则子会话事件只落在一个谁都读不到的私有 store 里，v4 的
- * `loadPersistedEvents(childSessionId)` 恒为空——transcript 永久空白。子事件仍按子自己的
+ * `loadPersistedEvents(childSessionId)` 恒为空--transcript 永久空白。子事件仍按子自己的
  * sessionId 落库，两条会话在同一个 store 里互不覆盖（`subagent.ts:280` 的
  * `eventStore: this.eventStore` 是同一条约定）。
  */
@@ -186,7 +198,7 @@ export function getSessionEventStore(this: AgentRuntimeInternal): SessionEventSt
  *
  * 子 runtime 必须在**构造期**把这个调用装成自己的 `deps.eventSink`：
  * `ensureSessionPersistedForExternalActivity` 把 SessionTitleUpdated 写成 sequenceNumber 1，
- * 而 v4 网关只排水连续 seq——构造之后才挂的订阅从 seq 2 起，会永远等一个再也不会来的 seq 1。
+ * 而 v4 网关只排水连续 seq--构造之后才挂的订阅从 seq 2 起，会永远等一个再也不会来的 seq 1。
  */
 export async function notifyExternalChildSessionEvent(
   this: AgentRuntimeInternal,
@@ -205,11 +217,11 @@ export async function notifyExternalChildSessionEvent(
  *
  * 子 runtime 的账本身份（子 sessionId）不是协议客户端能应答的身份。dwf actor 与 legacy
  * workflow child 过去直接从 `appOptions` 取 `providerRuntimeHeadersPort` / `permissionBroker`，
- * 于是带着 `sess_dwf-…`去问桌面；桌面回包路径上的 `requireSession` 抛错、response 永不发出，
+ * 于是带着 `sess_dwf-...`去问桌面；桌面回包路径上的 `requireSession` 抛错、response 永不发出，
  * 子代理在首个模型请求前永久挂起（8 个子代理、80 分钟无任何事件）。core 内建 subagent 当时靠
- * 两个私有 wrapper 绕开，三处装配两错一对——说明规则散落在调用点就一定会漂。
+ * 两个私有 wrapper 绕开，三处装配两错一对--说明规则散落在调用点就一定会漂。
  *
- * 修法：派生收敛到 `deriveChildClientPorts`，且只能由**父 runtime** 调用——`parentSessionId`
+ * 修法：派生收敛到 `deriveChildClientPorts`，且只能由**父 runtime** 调用--`parentSessionId`
  * 由父自己填，调用方给不了错的值。任何在 class 外构造子 runtime 的装配（dwf actor、legacy
  * workflow child）必须经这里取端口。
  */

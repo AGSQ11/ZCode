@@ -22,7 +22,16 @@ import {
   TID_MODEL_PROVIDER_NAME_INPUT,
   testId,
 } from "@zcode/shared";
-import { InfoIcon, LockKeyholeIcon, Plus, Pencil, Trash2, MoreHorizontal } from "lucide-react";
+import {
+  InfoIcon,
+  LockKeyholeIcon,
+  Plus,
+  Pencil,
+  Trash2,
+  MoreHorizontal,
+  DownloadIcon,
+  LoaderIcon,
+} from "lucide-react";
 import { Button } from "@/components/ui/button.js";
 import { Input } from "@/components/ui/input.js";
 import {
@@ -381,6 +390,12 @@ export function ProviderModelsSection({
   const addSavingRef = useRef(false);
   const [addCommitError, setAddCommitError] = useState<string | null>(null);
   const [addModel] = useState(createEmptyModel);
+  const [fetchingAll, setFetchingAll] = useState(false);
+  const [fetchAllProgress, setFetchAllProgress] = useState<{
+    added: number;
+    total: number;
+  } | null>(null);
+  const [fetchAllError, setFetchAllError] = useState<string | null>(null);
   const [addDraftErrorField, setAddDraftErrorField] = useState<
     | "id"
     | "contextWindow"
@@ -394,6 +409,33 @@ export function ProviderModelsSection({
     (modelId: string) => providerSettingsService.resolveModelConfig({ providerId, modelId }),
     [providerId, providerSettingsService],
   );
+  // 「获取全部模型」：拉取 Provider API 的模型列表，逐条按推荐配置加入（与 + 添加模型同源）。
+  const handleFetchAllModels = useCallback(async () => {
+    if (fetchingAll) return;
+    setFetchingAll(true);
+    setFetchAllError(null);
+    setFetchAllProgress(null);
+    try {
+      const result = await providerSettingsService.listRemoteModels({ providerId });
+      const existing = new Set(models.map((model) => model.modelId));
+      const targets = result.models.map((entry) => entry.id).filter((id) => !existing.has(id));
+      let added = 0;
+      setFetchAllProgress({ added: 0, total: targets.length });
+      for (const modelId of targets) {
+        try {
+          await providerSettingsService.addPersonalModel(providerId, modelId, {}, true);
+          added += 1;
+          setFetchAllProgress({ added, total: targets.length });
+        } catch {
+          // 已存在或无效模型：跳过，不中断批量导入。
+        }
+      }
+    } catch (error) {
+      setFetchAllError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setFetchingAll(false);
+    }
+  }, [fetchingAll, models, providerId, providerSettingsService]);
   const editor = useProviderModelDraft({
     model: addModel,
     open: addDialogOpen,
@@ -470,18 +512,44 @@ export function ProviderModelsSection({
         <span className="text-ui-base text-foreground-subtle">
           {intl.formatMessage({ id: "settings.modelProvider.models" })}
         </span>
-        <Button
-          type="button"
-          variant="secondary"
-          size="default"
-          className="rounded-lg"
-          data-testid={TID_MODEL_PROVIDER_ADD_MODEL_BUTTON}
-          onClick={openAddDialog}
-        >
-          <Plus data-icon="inline-start" aria-hidden="true" />
-          {intl.formatMessage({ id: "settings.modelProvider.addModel" })}
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          {providerAccess?.type !== "zhipu-account" ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="default"
+              className="rounded-lg"
+              data-testid="model-provider-fetch-all-models"
+              disabled={fetchingAll}
+              onClick={() => void handleFetchAllModels()}
+            >
+              {fetchingAll ? (
+                <LoaderIcon data-icon="inline-start" className="animate-spin" aria-hidden="true" />
+              ) : (
+                <DownloadIcon data-icon="inline-start" aria-hidden="true" />
+              )}
+              {fetchingAll && fetchAllProgress
+                ? intl.formatMessage(
+                    { id: "settings.modelProvider.fetchingAll" },
+                    { added: fetchAllProgress.added, total: fetchAllProgress.total },
+                  )
+                : intl.formatMessage({ id: "settings.modelProvider.fetchAllModels" })}
+            </Button>
+          ) : null}
+          <Button
+            type="button"
+            variant="secondary"
+            size="default"
+            className="rounded-lg"
+            data-testid={TID_MODEL_PROVIDER_ADD_MODEL_BUTTON}
+            onClick={openAddDialog}
+          >
+            <Plus data-icon="inline-start" aria-hidden="true" />
+            {intl.formatMessage({ id: "settings.modelProvider.addModel" })}
+          </Button>
+        </div>
       </div>
+      {fetchAllError ? <p className="mb-2 text-ui-base text-danger">{fetchAllError}</p> : null}
       {models.length > 0 ? (
         <div className="overflow-hidden rounded-lg border border-input-border bg-input">
           <SortableProviderModelList

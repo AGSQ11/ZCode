@@ -211,7 +211,7 @@ export interface ResourceUsageProcess {
   groupLabel: string;
   cpuPercent: number;
   memoryBytes: number;
-  /** false 表示只知道拓扑，指标尚未采到（显示为 —） */
+  /** false 表示只知道拓扑，指标尚未采到（显示为 -） */
   sampled: boolean;
 }
 
@@ -356,9 +356,9 @@ export interface AppSettings {
     releaseDate?: string;
     releaseNotesByLocale?: Partial<Record<Locale, { title: string; markdown: string }>>;
   };
-  /** 设置页“接收 preview 自动更新”偏好；仅桌面端自动更新读取。 */
+  /** 设置页"接收 preview 自动更新"偏好；仅桌面端自动更新读取。 */
   receivePreviewUpdates?: boolean;
-  /** 设置页/更新弹窗“以后自动下载并安装更新”偏好；仅桌面端自动更新读取。 */
+  /** 设置页/更新弹窗"以后自动下载并安装更新"偏好；仅桌面端自动更新读取。 */
   autoDownloadAndInstallUpdates?: boolean;
   /** 用户跳过的 Electron 自动更新版本；按通道隔离，避免 stable / preview 互相遮挡。 */
   skippedElectronUpdateVersions?: Partial<Record<ElectronReleaseChannel, string>>;
@@ -366,4 +366,6 @@ export interface AppSettings {
   settingsSyncFirstRunPromptHandled?: boolean;
   /** 设置页里的临时 endpoint override；正式/测试默认 base url 由 ZCODE_BASE_URL env 管理。 */
   zcodeEndpointOrigin?: string;
+  /** 全局自定义系统提示词：替换默认 Agent 身份/行为 prompt 体系，保留前缀/技能/日期段。 */
+  customSystemPrompt?: string;
 }

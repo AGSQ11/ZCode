@@ -17,11 +17,7 @@ export const IModelProbeService = createServiceDescriptor<IModelProbeService>(
 
 export interface ModelProbeServiceDeps {
   /** 按 workspace 目标解析 zcodeAgent 客户端并发起协议调用（与 testModelConnectivity 同构）。 */
-  request: <T>(
-    method: string,
-    params: unknown,
-    parse: (value: unknown) => T,
-  ) => Promise<T>;
+  request: <T>(method: string, params: unknown, parse: (value: unknown) => T) => Promise<T>;
   target: ZCodeAgentModelProbeTarget;
 }
 

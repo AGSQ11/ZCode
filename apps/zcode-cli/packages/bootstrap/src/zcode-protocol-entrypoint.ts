@@ -1,4 +1,5 @@
 import { createConfig } from "@zcode/adapters/config";
+import type { McpElicitationPort, McpNotificationPort } from "@zcode/contracts";
 import { createNodeModelSelectionFacade } from "@zcode/provider-node";
 import { createNodeLoggerFactory } from "@zcode/adapters/logging";
 import {
@@ -224,10 +225,26 @@ export async function runZCodeProtocolAgent(
         resolveZCodeApiOrigin,
       }),
     };
+    // MCP elicitation 归属到协议 server 的会话；pool 先于 server 创建，端口延迟绑定。
+    let elicitationServer: {
+      requestMcpElicitation: McpElicitationPort["requestElicitation"];
+      handleMcpNotification: McpNotificationPort["onNotification"];
+    } | null = null;
     mcpConnectionPool =
       configResult.config.features.mcp === false
         ? undefined
         : createMcpAdapterConnectionPool({
+            elicitation: {
+              requestElicitation: (request, elicitationOptions) =>
+                elicitationServer
+                  ? elicitationServer.requestMcpElicitation(request, elicitationOptions)
+                  : Promise.resolve({ action: "decline" as const }),
+            },
+            // server 通知同样延迟绑定到协议 server。
+            notifications: {
+              onNotification: (notification) =>
+                elicitationServer?.handleMcpNotification(notification),
+            },
             clientVersion: options.version ?? "0.0.0",
             env: options.env,
             logger,
@@ -303,9 +320,23 @@ export async function runZCodeProtocolAgent(
               .map((model) => ({ providerId: provider.providerId, modelId: model.modelId })),
           );
       },
+      getRegistryProviderConnection: (providerId) => {
+        // 「获取全部模型」需要 baseUrl + apiKey 发起 GET /models；只读进程内快照。
+        const snapshot = activeProviderRegistryRuntime.runtime.registryService.getSnapshot();
+        const provider = snapshot?.registry.providers.find((p) => p.providerId === providerId);
+        if (!provider) return undefined;
+        const access = provider.config.access;
+        const apiKey = access.type !== "zhipu-account" ? access.apiKey : undefined;
+        return {
+          baseUrl: provider.config.api.baseUrl,
+          ...(apiKey ? { apiKey } : {}),
+          ...(provider.config.api.headers ? { headers: provider.config.api.headers } : {}),
+        };
+      },
       version: options.version,
     }));
     officialMcpAuthContext = server.officialMcpAuthRequestContext;
+    elicitationServer = server;
     if (configResult.config.features.mcp !== false) {
       nodeReplBrowserBroker = createNodeReplBrowserBroker({
         browserControlPort: server.browserControlPort,

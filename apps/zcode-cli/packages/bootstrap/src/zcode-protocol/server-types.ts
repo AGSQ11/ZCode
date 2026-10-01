@@ -69,6 +69,15 @@ export interface ZCodeProtocolAgentDependencies {
    * 不发网络请求。与 GUI picker 同源（ResolvedProviderModel 的 enabled/executable 过滤）。
    */
   listRegistryModels?: () => Promise<readonly { providerId: string; modelId: string }[]>;
+  /**
+   * 「获取全部模型」的只读 Provider 连接事实：baseUrl + apiKey + headers。
+   * 从进程内 Registry 快照读取；Provider 不存在或不是 API-key 型时返回 undefined。
+   */
+  getRegistryProviderConnection?: (
+    providerId: string,
+  ) =>
+    | { baseUrl: string; apiKey?: string; headers?: Record<string, string> }
+    | undefined;
 }
 
 export type ZCodeProtocolAgentResolvedDependencies = ZCodeProtocolAgentDependencies & {
@@ -90,6 +99,8 @@ export interface ZCodeProtocolSessionRecord {
   memoryEnabled: boolean;
   nativeSearchEnhancementsEnabled: boolean;
   modelContextBudgetStrategy: ZCodeModelContextBudgetStrategy;
+  /** 全局自定义系统提示词；子会话继承父会话时读取。 */
+  systemPrompt?: string;
   createdAt: number;
   deliveryKind?: ZCodeDeliveryKind;
   /**

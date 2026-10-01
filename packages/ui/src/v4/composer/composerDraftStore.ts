@@ -1,12 +1,12 @@
 // composer parity：v4 composer 的 per-session 草稿持久化（新做，轻量 localStorage）。
 //
 // 旧草稿面（zcodeSessionStore composerDraftByScopeId + chatComposerDraftStorage 写路径）
-// 已随 store 收尾删除；本模块是 v4 侧替代——键空间独立（v4 前缀），不与旧键互写，
+// 已随 store 收尾删除；本模块是 v4 侧替代--键空间独立（v4 前缀），不与旧键互写，
 // 旧键清理仍归 chatComposerDraftStorage 的 janitor。
 // 语义：scope = sessionId（draft 态 = "__draft__"）；保存 text + editorStateJson，外部预填在
 // Lexical 尚未挂载时额外保存 mention（保证重挂载不降级为纯文本）。
 // mode/modelSelection 与正文同 scope 保存；发送只清内容，显式清理才删除整个 scope。
-// 附件不入草稿（objectUrl/File 不可序列化，localPath 附件重启后归属难校验——
+// 附件不入草稿（objectUrl/File 不可序列化，localPath 附件重启后归属难校验--
 // 与「v4 composer 不做附件草稿持久化」的裁决一致）。
 import { logger } from "@/logger.js";
 import { modelSelectionSchema, type ModelSelection } from "@zcode/shared";
@@ -24,6 +24,8 @@ export interface V4ComposerDraft {
   lastPlanTransitionId?: string;
   lastPermissionGrantId?: string;
   modelSelection?: ModelSelection;
+  /** 会话级系统提示词覆盖；随草稿持久化，重载后由提交前屏障重新下发。 */
+  systemPrompt?: string;
   /** 首次分享导入等待公共新任务初始化；不能由空 Session snapshot 抢先填充。 */
   initializeFromNewTask?: true;
   updatedAt: number;
@@ -133,6 +135,9 @@ function readDraft(value: unknown): V4ComposerDraft | null {
       ? { lastPlanTransitionId: value.lastPlanTransitionId }
       : {}),
     ...(modelSelection ? { modelSelection } : {}),
+    ...(typeof value.systemPrompt === "string" && value.systemPrompt.trim()
+      ? { systemPrompt: value.systemPrompt }
+      : {}),
     ...(value.initializeFromNewTask === true && !mode.success
       ? { initializeFromNewTask: true as const }
       : {}),

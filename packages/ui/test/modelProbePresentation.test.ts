@@ -22,10 +22,7 @@ test("groups are tiered alive→unknown→dead, alphabetical within tier", () =>
     {
       key: "provider-1",
       label: "Provider 1",
-      items: [
-        item("z-p:m-zeta", "Zeta"),
-        item("z-p:m-alpha", "Alpha"),
-      ],
+      items: [item("z-p:m-zeta", "Zeta"), item("z-p:m-alpha", "Alpha")],
     },
   ];
   const statusMap = new Map([

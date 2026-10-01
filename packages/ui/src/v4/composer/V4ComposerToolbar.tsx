@@ -356,6 +356,10 @@ export interface V4ComposerToolbarProps {
   /** 选中思考深度；modelContext 固定本次用户操作的目标模型。 */
   onSelectThought: (thought: string, modelContext: { provider: string; model: string }) => void;
   onSwitchMode: (mode: string) => void;
+  /** 会话级系统提示词覆盖；undefined/空串 = 清除覆盖（回退全局/默认）。 */
+  onSetSystemPrompt?: (prompt: string | undefined) => void;
+  /** 当前会话生效的系统提示词覆盖值（用于菜单展示 active 态）。 */
+  activeSystemPrompt?: string;
   /** prepare/configOptions 失败时，custom provider 选择走 workspace recovery 链。 */
   onRecoverCustomModelSelection?: (
     value: string,

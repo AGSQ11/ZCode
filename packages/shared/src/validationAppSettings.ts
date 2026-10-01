@@ -241,7 +241,7 @@ function migrateLegacyLocalePreference(value: unknown): unknown {
 
   return {
     ...raw,
-    // 旧 setting.json 只有 locale，无法区分“用户显式选择 zh-CN”和“默认值 zh-CN”。
+    // 旧 setting.json 只有 locale，无法区分"用户显式选择 zh-CN"和"默认值 zh-CN"。
     // 对已经落盘的旧配置保留原 locale 作为显式偏好，避免升级后误切到 system。
     localePreference: parsedLocale.data,
   };
@@ -402,7 +402,7 @@ function migrateLegacyWorkspaceSession(value: unknown): unknown {
   ];
 
   // 旧 setting.json 把本地会话、远端历史、组合会话拆在三处存，
-  // 一旦只删掉其中一处，启动恢复就会出现“列表还在但恢复不到”或“远端数据残留”的分叉状态。
+  // 一旦只删掉其中一处，启动恢复就会出现"列表还在但恢复不到"或"远端数据残留"的分叉状态。
   // 这里在 schema 解析阶段统一合并进 lastWorkspaceSession，并主动移除旧字段，
   // 保证后续所有读写都只围绕单一真相源展开。
   if (
@@ -472,6 +472,7 @@ const appSettingsObjectSchema = z.object({
   skippedElectronUpdateVersions: skippedElectronUpdateVersionsSchema,
   settingsSyncFirstRunPromptHandled: z.boolean().optional(),
   zcodeEndpointOrigin: zcodeEndpointOriginSchema.optional(),
+  customSystemPrompt: z.string().max(32_000).optional(),
 });
 
 export const appSettingsSchema = z.preprocess(
@@ -559,4 +560,5 @@ export const appSettingsPatchSchema = z.object({
     .optional(),
   settingsSyncFirstRunPromptHandled: z.boolean().optional(),
   zcodeEndpointOrigin: zcodeEndpointOriginSchema.optional(),
+  customSystemPrompt: z.string().max(32_000).optional(),
 });
