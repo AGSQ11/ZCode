@@ -56,7 +56,7 @@ function applyDraftModelSelection(
     model: model.modelId,
   };
   // thought 是模型的附属配置。切模型后保留源 thought 会让首发前配置屏障
-  // 在目标模型已切成功后把它当成“同模型显式切 thought”再次写入，必须先清除。
+  // 在目标模型已切成功后把它当成"同模型显式切 thought"再次写入，必须先清除。
   delete next.thought;
   return next;
 }
@@ -77,9 +77,9 @@ function shouldHydrateWorkspaceCatalog(params: {
 interface DraftConfigControl {
   modelSelectionRead: ModelSelectionRead;
   /** Renderer 下一次提交的配置；Session 只在 scope 首次初始化时提供种子。 */
-  draftConfig: Partial<SessionConfigState>;
+  draftConfig: Partial<SessionConfigState> & { systemPrompt?: string };
   /** 草稿已选 config（partial）；createSession 时经 buildDraftCreateConfigPayload 携带。 */
-  draftConfigRef: React.RefObject<Partial<SessionConfigState>>;
+  draftConfigRef: React.RefObject<Partial<SessionConfigState> & { systemPrompt?: string }>;
   /** 当前草稿生命周期冻结的初始化 config；只供 prewarm/createSession 建立时使用。 */
   resolveInitialDraftConfig: () => Partial<SessionConfigState> | undefined;
   composerDraft: V4ComposerDraft;
@@ -97,6 +97,8 @@ interface DraftConfigControl {
   handleDraftSelectModel: (modelProvider: string, model: string) => void;
   handleDraftSelectThought: (thought: string) => void;
   handleDraftSwitchMode: (mode: string) => void;
+  /** 会话级系统提示词覆盖；undefined/空串 = 清除覆盖。 */
+  handleDraftSetSystemPrompt: (prompt: string | undefined) => void;
 }
 
 export function useDraftConfigControl(params: {
@@ -179,7 +181,7 @@ export function useDraftConfigControl(params: {
   const effectiveSelection = modelSelectionView
     ? (modelSelectionView.effectiveSelection ?? undefined)
     : draft.modelSelection;
-  const draftConfig = useMemo<Partial<SessionConfigState>>(
+  const draftConfig = useMemo<Partial<SessionConfigState> & { systemPrompt?: string }>(
     () => ({
       mode: draft.mode,
       planEnabled: draft.planEnabled ?? false,
@@ -187,8 +189,9 @@ export function useDraftConfigControl(params: {
       provider: effectiveSelection?.providerId ?? "",
       model: effectiveSelection?.modelId ?? "",
       thought: effectiveSelection?.options?.reasoningLevel ?? "",
+      ...(draft.systemPrompt ? { systemPrompt: draft.systemPrompt } : {}),
     }),
-    [draft.mode, draft.planEnabled, effectiveSelection],
+    [draft.mode, draft.planEnabled, draft.systemPrompt, effectiveSelection],
   );
   const draftConfigRef = useRef(draftConfig);
   draftConfigRef.current = draftConfig;
@@ -223,6 +226,7 @@ export function useDraftConfigControl(params: {
         provider: selection?.providerId ?? "",
         model: selection?.modelId ?? "",
         thought: selection?.options?.reasoningLevel ?? "",
+        ...(next.systemPrompt ? { systemPrompt: next.systemPrompt } : {}),
       };
       setStoredState(nextState);
       persistV4ComposerDraft(workspacePath, workspaceIdentity, scopeId, next);
@@ -480,6 +484,20 @@ export function useDraftConfigControl(params: {
     [updateComposerDraft],
   );
 
+  const handleDraftSetSystemPrompt = useCallback(
+    (prompt: string | undefined) => {
+      // 空串清除覆盖；随草稿持久化，重载后由提交前屏障重新下发到 runtime。
+      const normalized = prompt?.trim();
+      updateComposerDraft((current) => {
+        const next = { ...current };
+        if (normalized) next.systemPrompt = normalized;
+        else delete next.systemPrompt;
+        return next;
+      });
+    },
+    [updateComposerDraft],
+  );
+
   return {
     modelSelectionRead,
     draftConfig,
@@ -493,15 +511,16 @@ export function useDraftConfigControl(params: {
     handleDraftSelectModel,
     handleDraftSelectThought,
     handleDraftSwitchMode,
+    handleDraftSetSystemPrompt,
   };
 }
 
 /** createSession payload 的草稿 config 片段（无选择时返回空对象，不携带 config 键）。 */
 export function buildDraftCreateConfigPayload(
-  draftConfig: Partial<SessionConfigState>,
+  draftConfig: Partial<SessionConfigState> & { systemPrompt?: string },
   appFollowupMode?: SessionConfigState["followupMode"] | null,
-): { config?: Partial<SessionConfigState> } {
-  const config: Partial<SessionConfigState> = { ...draftConfig };
+): { config?: Partial<SessionConfigState> & { systemPrompt?: string } } {
+  const config: Partial<SessionConfigState> & { systemPrompt?: string } = { ...draftConfig };
   if (appFollowupMode) {
     config.followupMode = appFollowupMode;
   }

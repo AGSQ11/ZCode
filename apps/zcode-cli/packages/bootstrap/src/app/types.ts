@@ -477,7 +477,7 @@ export interface ZCodeApp {
   ): Promise<BackgroundTaskCancelResult>;
   /**
    * workflow run 的事件日志分页（详情页审计面）。可选能力：dwf journal 不可用时 run service
-   * 整个不构造，此方法随之缺席，网关据此回结构化的能力不支持错误而不是空页——
+   * 整个不构造，此方法随之缺席，网关据此回结构化的能力不支持错误而不是空页--
    * 「没有事件」与「这个会话没有这个能力」是两件事。
    *
    * cursor = journal sequence（`appendEvent` 单调分配），与 workflowRuns[].lastEventSequence
@@ -492,7 +492,7 @@ export interface ZCodeApp {
    * 恢复一个 dwf run。可选能力，缺席条件同
    * {@link listDynamicWorkflowRunEvents}。成功路径除了 port.resume 之外还负责**追踪重臂**
    * （runtime.trackResumedDynamicWorkflowRun）：漏掉它，恢复的 run 不可取消、完成通知丢失、
-   * 会话被回收护栏当成空闲。失败以结构化 reason 返回（不是 throw）——五种原因全是调用方
+   * 会话被回收护栏当成空闲。失败以结构化 reason 返回（不是 throw）--五种原因全是调用方
    * 可预期的业务分支。
    */
   resumeWorkflowRun?(input: {
@@ -503,9 +503,9 @@ export interface ZCodeApp {
    * 中枢直接启动一个已保存的工作流。GUI 在目标项目里建一个
    * 空会话后向它发 `startSavedWorkflow`：agent 解析 saved 来源 + 校验实参 + 编译，干净则以一条
    * controlOnly「启动轮」把用户的真实动作落进会话并 `port.submit` 启动 run（不经模型回合、不弹
-   * `CreateWorkflow` 确认窗——用户在中枢里的点击就是同意）。可选能力，缺席条件同
+   * `CreateWorkflow` 确认窗--用户在中枢里的点击就是同意）。可选能力，缺席条件同
    * {@link resumeWorkflowRun}（无 dwf 端口即不注册；网关回能力不支持错误）。失败以结构化 `reason`
-   * 返回（不是 throw）——六种原因全是调用方可预期的业务分支，`message` 携带人可读诊断供实参窗行内展示；
+   * 返回（不是 throw）--六种原因全是调用方可预期的业务分支，`message` 携带人可读诊断供实参窗行内展示；
    * ①② 阶段失败在**任何持久化之前**（无 run、无消息、无事件、无任务），GUI 据此 `deleteSession`
    * 收回空会话，转写里只出现真正启动了的 run。
    */
@@ -517,20 +517,20 @@ export interface ZCodeApp {
   /**
    * GUI「配置」改一个 run 的子代理模型与并发上界：以同一份脚本修订出新 run，不经模型轮、不开确认窗。可选能力：端口
    * 缺席、或端口不带 `amend` / `getScript` 时不注册（网关回能力不支持错误）。失败以结构化 `reason`
-   * 返回——每一种都发生在停下或新建任何东西之前。
+   * 返回--每一种都发生在停下或新建任何东西之前。
    */
   amendWorkflowRunSettings?(
     input: Omit<AmendWorkflowRunSettingsInput, "traceContext">,
   ): Promise<AmendWorkflowRunSettingsResult>;
   /**
    * workflow run 的枚举面（重启后的发现查询）。可选能力，缺席条件同
-   * {@link listDynamicWorkflowRunEvents}；journal 无枚举窄查询时回空列表（诚实答案——
+   * {@link listDynamicWorkflowRunEvents}；journal 无枚举窄查询时回空列表（诚实答案--
    * 内存 journal 的 run 本就不会活过进程）。`resumable` 按 resume 门的同一个谓词算好。
    */
   listDynamicWorkflowRuns?(input: { limit?: number }): Promise<DynamicWorkflowRunSessionSummary[]>;
   /**
    * workflow run 的冷回放：本会话名下、`excludeRunIds`
-   * 之外的 run 从 journal 回放成进度事件载荷，冷物化把它们当内存事件喂给同一个 reducer——
+   * 之外的 run 从 journal 回放成进度事件载荷，冷物化把它们当内存事件喂给同一个 reducer--
    * `workflowRuns` 投影因此在重启前后一致。可选能力，缺席条件同 {@link listDynamicWorkflowRuns}。
    */
   replayDynamicWorkflowRuns?(input: {
@@ -552,7 +552,7 @@ export interface ZCodeApp {
   }): Promise<readonly DynamicWorkflowRunArtifact[] | undefined>;
   /**
    * 喂给某个预置看板的 `report` 条目分页（cursor = journal sequence，严格大于）。
-   * `limit` 由网关钳好再传下来，这里**精确**兑现——调用方传「上限 + 1」探测 hasMore。
+   * `limit` 由网关钳好再传下来，这里**精确**兑现--调用方传「上限 + 1」探测 hasMore。
    * 缺席条件同 {@link listDynamicWorkflowRunArtifacts}。
    */
   listDynamicWorkflowRunArtifactItems?(input: {
@@ -564,7 +564,7 @@ export interface ZCodeApp {
   /**
    * 读一个产物版本的**全部**字节；分块归网关（≤ 512 KiB 一块）。授权链在端口实现侧：
    * 该 run 必须属于本会话 ∧ journal 里有 `(artifactId, version)` 的 completed 行，然后才拿
-   * **行上的** uri 去 store 读——调用方传来的任何 id 绝不直接成为路径。
+   * **行上的** uri 去 store 读--调用方传来的任何 id 绝不直接成为路径。
    * 无此版本 / 预置看板（没有字节）/ store 缺席都回 `undefined`。
    * 缺席条件同 {@link listDynamicWorkflowRunArtifacts}。
    */
@@ -697,7 +697,7 @@ export interface ZCodeApp {
     modelId: string | ModelSelection,
     options?: {
       /**
-       * per-turn（off-peak idle plan）：true = 仅切运行态——不写磁盘模型选择、
+       * per-turn（off-peak idle plan）：true = 仅切运行态--不写磁盘模型选择、
        * 不产出 modelChange 聊天通知。用于 turn 级临时切换（应用/还原成对出现）。
        */
       transient?: boolean;
@@ -787,6 +787,11 @@ export interface ZCodeApp {
   /** v4 setFollowupMode：翻转 followup 路由模式（queue/guide，会话级配置）。 */
   setFollowupMode(
     mode: "queue" | "guide",
+    options?: { traceContext?: TraceContext },
+  ): Promise<void>;
+  /** 会话级系统提示词覆盖；undefined 不改，空串清除覆盖（回退全局/默认）。 */
+  setSystemPrompt(
+    prompt: string | undefined,
     options?: { traceContext?: TraceContext },
   ): Promise<void>;
   runExpertWorkflow(

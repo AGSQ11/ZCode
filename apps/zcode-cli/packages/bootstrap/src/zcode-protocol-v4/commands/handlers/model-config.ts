@@ -68,7 +68,7 @@ const SWITCHABLE_MODES: ReadonlySet<string> = new Set(["build", "edit", "plan", 
 
 /**
  * switchModelConfig：切换会话模型选型。跨模型时 app.setModel 换 provider client + 模型，
- * 同模型时 thought 才是显式思考深度切换，随后补发 ModelSelected——v4 投影的 config 区
+ * 同模型时 thought 才是显式思考深度切换，随后补发 ModelSelected--v4 投影的 config 区
  * 更新与中途切换的 modelChange marker 都靠这条事件（reducer onModelSelected）。
  *
  * 行为等价说明：旧协议路径无 active turn guard（运行中也允许切换），这里保持一致不加。
@@ -98,7 +98,7 @@ async function switchModelConfig(
     const thoughtChanged =
       Boolean(requestedThought) && requestedThought !== previousSelection?.options?.reasoningLevel;
     // 同值切换收口：命中 runtime 当前值 → noop ACK（config.unchanged），
-    // 不得以 accepted 静默吞掉——种子对齐后「UI 显示值 = runtime 真值」成立，
+    // 不得以 accepted 静默吞掉--种子对齐后「UI 显示值 = runtime 真值」成立，
     // 客户端据此区分「已生效」与「本来就是这个值」。
     if (!modelIdentityChanged && !thoughtChanged) {
       throw new V4CommandNoopError(CONFIG_UNCHANGED);
@@ -147,7 +147,7 @@ async function switchModelConfig(
  * 命令层不再补发第二次事件，
  * v4 投影 reducer onSessionModeChanged 据此更新 config.mode。
  * 同值切换 → noop ACK：静默 return undefined 会被当 accepted，若投影种子缺失
- * 会叠加成「点完全访问没反应」的用户可见问题——CLI 认为已是 yolo
+ * 会叠加成「点完全访问没反应」的用户可见问题--CLI 认为已是 yolo
  * 提前返回，投影却还停在种子 build，且客户端无从判别。因此必须显式 ACK。
  */
 async function switchCollaborationMode(
@@ -168,7 +168,7 @@ async function switchCollaborationMode(
 /**
  * createSession.config 消费共用件（「createSession.config 必须被消费」）：
  * 以「请求 config 覆盖 runtime 缺省」归并，只对与 runtime 当前值不同的部分生效，
- * 并补发与 switch 命令同源的事件（ModelSelected / SessionModeChanged）——日志自足，
+ * 并补发与 switch 命令同源的事件（ModelSelected / SessionModeChanged）--日志自足，
  * 投影经既有 reducer 收口，不依赖第二条写路径。
  *
  * 为什么走事件而不是直改种子：publisher 在 createSessionRecord 事件接线期间已创建，
@@ -177,7 +177,7 @@ async function switchCollaborationMode(
  * reducer 不产 modelChange marker（onModelSelected「首次选型不算切换」），无噪音行。
  *
  * 部分失败语义：会话已创建成功，config 应用失败不应连坐 createSession（record 泄漏
- * 换一个 failed ACK 不值当）——调用方捕获后降级为 warn，会话保持 runtime 缺省。
+ * 换一个 failed ACK 不值当）--调用方捕获后降级为 warn，会话保持 runtime 缺省。
  */
 export async function applyRequestedSessionConfig(
   host: V4CommandCoreHost,
@@ -222,7 +222,7 @@ export async function applyRequestedSessionConfig(
         actualThought = result.thoughtLevel;
       } else if (requestedSelection?.options?.reasoningLevel) {
         // 正式结构化 Selection 的显式 option 必须 fail-closed；只有旧 flat config
-        // 保留“目标不支持则使用默认值”的已发布兼容行为。
+        // 保留"目标不支持则使用默认值"的已发布兼容行为。
         await record.app.setThoughtLevel(targetThought);
       }
       if (modelIdentityChanged || actualThought !== previousThought) {
@@ -257,11 +257,34 @@ export async function applyRequestedSessionConfig(
     );
   }
 
-  // followupMode：runtime 缺省即 queue（投影初值同），仅非缺省值需要显式写——
+  // followupMode：runtime 缺省即 queue（投影初值同），仅非缺省值需要显式写--
   // runtime.setFollowupMode 无同值守卫（无条件追加事件），显式传 "queue" 会产空转 delta。
   if (config.followupMode && config.followupMode !== "queue") {
     await record.app.setFollowupMode(config.followupMode);
   }
+
+  // systemPrompt：会话级覆盖；仅在请求显式携带时应用（缺省沿用全局/默认）。
+  if (config.systemPrompt !== undefined) {
+    await record.app.setSystemPrompt(config.systemPrompt);
+  }
 }
 
-export const modelConfigHandlers = { switchModelConfig, switchCollaborationMode };
+/**
+ * setSystemPrompt：会话级系统提示词覆盖。空串/缺省 = 清除覆盖（回退全局 AppSettings/默认）。
+ * 直驱 runtime.updateConfig（内部 rebuildContextPrefix），不经旧协议 op。
+ */
+async function setSystemPrompt(
+  host: V4CommandCoreHost,
+  envelope: CommandEnvelope,
+): Promise<CommandResult | undefined> {
+  const payload = envelope.payload as CommandPayloadMap["setSystemPrompt"];
+  const record = requireRecord(host, envelope.sessionId);
+  await record.app.setSystemPrompt(payload.prompt);
+  return undefined;
+}
+
+export const modelConfigHandlers = {
+  switchModelConfig,
+  switchCollaborationMode,
+  setSystemPrompt,
+};

@@ -436,6 +436,10 @@ interface ConversationComposerProps {
   /** 选中思考深度；同时带上用户操作时看到的模型，避免异步回流后把 thought 归到另一模型。 */
   onSelectThought: (thought: string, modelContext: { provider: string; model: string }) => void;
   onSwitchMode: (mode: string) => void;
+  /** 会话级系统提示词覆盖；undefined/空串 = 清除覆盖。 */
+  onSetSystemPrompt?: (prompt: string | undefined) => void;
+  /** 当前会话生效的系统提示词覆盖值。 */
+  activeSystemPrompt?: string;
   /** 打开当前 session 的 Status panel，并直达 Running 明细。 */
   onOpenRunningBackgroundWorks?: () => void;
   /**
@@ -525,6 +529,8 @@ function ConversationComposerImpl({
   onSelectModel,
   onSelectThought,
   onSwitchMode,
+  onSetSystemPrompt,
+  activeSystemPrompt,
   onOpenRunningBackgroundWorks,
   backgroundWorkOpenTarget = "panel",
   runningSubagentCount = 0,
@@ -2096,6 +2102,8 @@ function ConversationComposerImpl({
             onSelectModel={handleSelectModelTrace}
             onSelectThought={onSelectThought}
             onSwitchMode={onSwitchMode}
+            onSetSystemPrompt={onSetSystemPrompt}
+            activeSystemPrompt={activeSystemPrompt}
             onRecoverCustomModelSelection={onRecoverCustomModelSelection}
             onSendCompressionCommand={onSendCompressionCommand}
           />
@@ -2187,6 +2195,8 @@ function ConversationComposerImpl({
           activeConfigPicker={activeConfigPicker}
           onConfigPickerOpenChange={handleConfigPickerOpenChange}
           onSwitchMode={onSwitchMode}
+          onSetSystemPrompt={onSetSystemPrompt}
+          activeSystemPrompt={activeSystemPrompt}
         />
         {/* 附件画廊重构曾整段覆盖 leadingActions，误删 CUA 常驻入口。
             入口自身继续负责平台、远程与设置可见性，不在 composer 重复判定。 */}
@@ -2213,6 +2223,8 @@ function ConversationComposerImpl({
       backgroundWorkOpenTarget,
       onOpenRunningBackgroundWorks,
       onSwitchMode,
+      onSetSystemPrompt,
+      activeSystemPrompt,
       provider,
       remoteSessionId,
       runningSubagentCount,

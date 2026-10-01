@@ -34,11 +34,13 @@ const createSessionRequestedConfigSchema = z.object({
   model: z.string().optional(),
   thought: z.string().optional(),
   followupMode: z.enum(["queue", "guide"]).optional(),
-  // createSession.config 表达“请求覆盖字段”，不能复用 snapshot 的
+  // createSession.config 表达"请求覆盖字段"，不能复用 snapshot 的
   // sessionConfigStateSchema.partial()；snapshot 为兼容旧快照给 mode 设了 default("build")，
-  // 会把“没传 mode”误变成“请求切回 build”，覆盖 workspace 默认 yolo。
+  // 会把"没传 mode"误变成"请求切回 build"，覆盖 workspace 默认 yolo。
   mode: z.string().optional(),
   planEnabled: z.boolean().optional(),
+  // 会话级系统提示词覆盖（草稿预热时携带；优先于全局 AppSettings.customSystemPrompt）。
+  systemPrompt: z.string().max(32_000).optional(),
 });
 
 // ── 命令 payload 全集 ──
@@ -58,7 +60,7 @@ export const commandPayloadSchemas = {
     config: createSessionRequestedConfigSchema.optional(),
     // MCP 是 runtime 启动期配置，必须随 create 一次性进入 record，不能在首发后补写。
     mcpServers: z.array(zcodeProtocolMcpServerSchema).optional(),
-    // Off-Peak 工具面 flag，与 legacy session/create 等价——V4 createSession 是桌面
+    // Off-Peak 工具面 flag，与 legacy session/create 等价--V4 createSession 是桌面
     // 新会话的实际创建路径，不透传则 OffPeakCreate/OffPeakList 永不注册。additive，
     // 旧 CLI 的 z.object 会静默丢弃该键（fail-closed）。
     offPeakToolEnabled: z.boolean().optional(),
@@ -162,7 +164,7 @@ export const commandPayloadSchemas = {
     workspaceMode: z.enum(["preserve", "rewind"]).optional(),
   }),
   retryTurn: z.object({ target: conversationRowTargetSchema }),
-  // （2026-09-12）：原 setToolWidgetState / setSessionPluginUiState 已删除——插件 UI widgetState
+  // （2026-09-12）：原 setToolWidgetState / setSessionPluginUiState 已删除--插件 UI widgetState
   // 回退为宿主 renderer 内存保存，不再写 CLI 会话存储；模型可见信息改走 ui/update-model-context。
   setAssistantFeedback: z.object({
     target: conversationRowTargetSchema,
@@ -221,6 +223,8 @@ export const commandPayloadSchemas = {
     mode: z.enum(["build", "edit", "plan", "yolo"]),
   }),
   setFollowupMode: z.object({ mode: z.enum(["queue", "guide"]) }),
+  // 会话级系统提示词覆盖：prompt 缺省/空串 = 清除覆盖（回退全局 AppSettings/默认）。
+  setSystemPrompt: z.object({ prompt: z.string().max(32_000).optional() }),
   pauseGoal: z.object({}),
   resumeGoal: z.object({}),
   cancelBackgroundWork: z.object({ workId: z.string() }),
@@ -291,7 +295,7 @@ export const WORKFLOW_RUN_RESUME_REJECTED_FAULT_PREFIX =
   "fault.command.workflowRunResumeRejected." as const;
 
 // cancelBackgroundWork 的拒绝：core 明确回「没有取消任何东西」时（任务不存在 / 已终结 / 类型不支持）
-// 以前缀 + reason 上行，而不是一个假装成功的 accepted——详情页据此告诉用户这个 run 并不在跑。
+// 以前缀 + reason 上行，而不是一个假装成功的 accepted--详情页据此告诉用户这个 run 并不在跑。
 // reason 即 core 的 stopBackgroundTask reason 去掉 `background_task_` 前缀：not_found /
 // not_running / cancel_not_supported。
 export const BACKGROUND_WORK_CANCEL_REJECTED_FAULT_PREFIX =

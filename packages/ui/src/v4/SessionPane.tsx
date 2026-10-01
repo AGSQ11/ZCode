@@ -483,7 +483,7 @@ function shouldRestoreQueuedComposerFromAck(status: CommandAck["status"]): boole
  *
  * React 性能（vercel-react-best-practices）：
  * - 叶子组件（Header/Timeline/QueuePanel/InputControls/Composer/GoalBanner）均 memo；
- * - 所有回调用 useCallback 且**不依赖高频变化的 snapshot**——snapshot/composer 文本经 ref 读取，
+ * - 所有回调用 useCallback 且**不依赖高频变化的 snapshot**--snapshot/composer 文本经 ref 读取，
  *   使回调在流式增量期间保持稳定引用，避免把新函数灌进 memo 子组件触发无谓重渲染；
  * - 模型表单的本地输入 state 下沉到对应子组件，输入时不牵动整个 pane。
  */
@@ -1011,7 +1011,7 @@ export function SessionPane({
     hasPluginReferenceUserRows(snapshot?.rows.window ?? []);
   // send_result 的落定信号：用户消息真正画进对话历史。z-code 没有乐观渲染，
   // 气泡必须等投影回流出 userInput row 才出现，所以 ACK accepted 不能算发送完成。
-  // 取 useEffect 而非 store 订阅回调 —— effect 在 DOM commit 之后跑，此刻气泡已在屏幕上。
+  // 取 useEffect 而非 store 订阅回调 -- effect 在 DOM commit 之后跑，此刻气泡已在屏幕上。
   useEffect(() => {
     const rows = snapshot?.rows.window;
     if (!rows || rows.length === 0) return;
@@ -1247,6 +1247,7 @@ export function SessionPane({
     handleDraftSelectModel,
     handleDraftSelectThought,
     handleDraftSwitchMode,
+    handleDraftSetSystemPrompt,
     promoteComposerDraft,
     captureAcceptedModelSelection,
     replaceComposerDraft,
@@ -1384,7 +1385,7 @@ export function SessionPane({
   );
   // Tier 1 fork 跳转：点 child 会话的 forkNotice → 把当前 pane 原地切到父会话，复用 fork
   // 落地同款 onSessionCreated（primary→setActiveTaskId、分屏→bindPaneSession）。rowId 预留
-  // Tier 2 精确滚动——当前 forkNotice.parentRowId 恒为 0 占位，此处忽略。
+  // Tier 2 精确滚动--当前 forkNotice.parentRowId 恒为 0 占位，此处忽略。
   const handleNavigateToRow = useCallback(
     (targetSessionId: string, _rowId: number) => {
       if (!targetSessionId || targetSessionId === sessionId) {
@@ -1797,7 +1798,7 @@ export function SessionPane({
   // 值不只是 runId：run 态的卡片本身要渲染状态词与步数，所以联接一次就把摘要算完
   // （计数规则见 buildWorkflowRunByToolCallId，它的单测穷举 settled / observed 语义）。
   // 重启后投影不再为空：CLI 冷物化把 journal 回放进同一个 reducer，
-  // 卡片 join 只读投影，不再合并发现查询。发现查询在这里只剩一个用途——
+  // 卡片 join 只读投影，不再合并发现查询。发现查询在这里只剩一个用途--
   //
   // `limit` 与 `refreshKey` 服务的是任务列表那条「已结束的工作流 · N」页脚行：
   // - 深度取 run 目录页的同一个常量，否则页脚行的计数与页面上的行会是两套口径；
@@ -1846,7 +1847,7 @@ export function SessionPane({
     [snapshot?.workflowRuns],
   );
   // 详情页入口（面板 Workflows 分区的行）。行只把「打开哪个 run」交出来（runId + toolCallId），
-  // 会话与 workspace 身份照旧由这里补齐——与工具卡走的是同一个 handler，不存在第二条打开路径。
+  // 会话与 workspace 身份照旧由这里补齐--与工具卡走的是同一个 handler，不存在第二条打开路径。
   const handleOpenWorkflowRunFromPanel = useCallback(
     (target: ConversationStatusPanelWorkflowRunTarget) => {
       if (!sessionId) return;
@@ -2150,7 +2151,7 @@ export function SessionPane({
     [dispatchCommand, sessionId],
   );
 
-  // amendWorkflowRunSettings：run 卡的「配置」。回 ACK 给弹层——拒绝理由画在弹层里，不是控制台的一行 warn。门与 Resume 相同。
+  // amendWorkflowRunSettings：run 卡的「配置」。回 ACK 给弹层--拒绝理由画在弹层里，不是控制台的一行 warn。门与 Resume 相同。
   const handleAmendWorkflowRunSettings = useCallback(
     (workId: string, change: WorkflowRunSettingsChange): Promise<CommandAck> =>
       dispatchCommand("amendWorkflowRunSettings", { workId, ...change }, sessionId),
@@ -2955,7 +2956,7 @@ export function SessionPane({
           options?.submission === undefined ? createSubmissionFromComposer() : options.submission,
       };
       // followupMode 仍通过 Session CAS 同步；模型和模式已封装进 Submission，不再
-      // 依赖“配置命令先到、sendText 后到”的跨命令时序。
+      // 依赖"配置命令先到、sendText 后到"的跨命令时序。
       return configCommandBarrier.enqueue(async () => {
         try {
           return await dispatchSendTextAfterConfig(text, submissionOptions, createSource);
@@ -3011,7 +3012,7 @@ export function SessionPane({
         const detail = error instanceof Error ? error.message : String(error);
         const runtimeModelUnavailable = detail.includes("provider.notInRegistry");
         // 首发前 switchModelConfig 失败只会抛回 Composer；Composer 为了保留草稿
-        // 仅写日志，不会生成 snapshot.control.lastError，用户看到的结果就是“点击没反应”。
+        // 仅写日志，不会生成 snapshot.control.lastError，用户看到的结果就是"点击没反应"。
         // 这里把 admission 前失败收口为 pane-local 错误横幅，不改变 desktop continuous 或
         // Web remote replayable 的发送/恢复语义，草稿仍由 Composer 原路径保留。
         setSendSubmissionError({
@@ -3091,7 +3092,7 @@ export function SessionPane({
           newText,
           workspaceMode,
           // editUserQuery 的 attachments 缺省表示保留 canonical 原附件；
-          // 只有显式透传 []，CLI 才能区分“用户删除全部”与“调用方未修改附件”。
+          // 只有显式透传 []，CLI 才能区分"用户删除全部"与"调用方未修改附件"。
           ...(attachments ? { attachments: [...attachments] } : {}),
         },
         sessionId,
@@ -3253,7 +3254,7 @@ export function SessionPane({
     (queueItemId: string) => {
       const current = snapshotRef.current;
       if (!sessionId || current === null) return;
-      // 用户明确点击“立即发送”时，视觉意图等价于点击“滚动到底部”；command 的
+      // 用户明确点击"立即发送"时，视觉意图等价于点击"滚动到底部"；command 的
       // reserve/stop/promote 生命周期仍由 CLI 裁决，不把滚动状态混入协议。
       focusTimelineToLatest();
       void dispatchCommand("sendQueuedNow", { queueItemId }, sessionId, current.revision).then(
@@ -3326,7 +3327,7 @@ export function SessionPane({
       }
       // draft 预热会话已经创建、snapshot 尚未投影时，旧逻辑直接跳过
       // 配置 CAS；首发随后沿用 runtime 的 build 缺省。CAS 本身支持 stale revision
-      // 回包重试，因此无 snapshot 时从 0 起步也能确定收敛，不能把“未投影”当成功。
+      // 回包重试，因此无 snapshot 时从 0 起步也能确定收敛，不能把"未投影"当成功。
       let baseRevision =
         options?.initialBaseRevision ??
         (current?.sessionId === targetSessionId ? current.revision : 0);
@@ -3420,7 +3421,7 @@ export function SessionPane({
     followupModeSyncKeyRef.current = syncKey;
     // 交互行为的用户事实源是 app 设置页；v4 投影 followupMode 只是
     // CLI/runtime 同步结果。这里把设置变更补发成既有 setFollowupMode 命令，
-    // 避免 composer 再暴露一个同义“追加模式”入口造成上下游分叉。
+    // 避免 composer 再暴露一个同义"追加模式"入口造成上下游分叉。
     void configCommandBarrier.enqueue(() =>
       dispatchConfigCas("setFollowupMode", { mode: appFollowupMode }),
     );
@@ -3435,7 +3436,7 @@ export function SessionPane({
     snapshotSessionId,
   ]);
 
-  // Composer 选择表达“下一次提交”。点击只更新 renderer intent；Session Selection
+  // Composer 选择表达"下一次提交"。点击只更新 renderer intent；Session Selection
   // 在 Submission 真正开跑（Guide 为下一次 model-step）时由 CLI/Core 更新。
   const handleSelectModel = useCallback(
     (modelProvider: string, model: string, sourceModel: ModelSelectionSource | null) => {
@@ -3558,6 +3559,25 @@ export function SessionPane({
       handleDraftSwitchMode(mode);
     },
     [handleDraftSwitchMode],
+  );
+
+  // 会话级系统提示词：写入草稿（持久化 + 提交前屏障下发），并即时下发到已存在会话。
+  const handleSetSystemPrompt = useCallback(
+    (prompt: string | undefined) => {
+      handleDraftSetSystemPrompt(prompt);
+      const targetSessionId = sessionId ?? prewarmSessionId;
+      if (!targetSessionId) return;
+      void configCommandBarrier.enqueue(() =>
+        dispatchConfigCas("setSystemPrompt", { prompt: prompt?.trim() || undefined }),
+      );
+    },
+    [
+      handleDraftSetSystemPrompt,
+      sessionId,
+      prewarmSessionId,
+      configCommandBarrier,
+      dispatchConfigCas,
+    ],
   );
 
   // context usage 面板的压缩入口（命令文本 = "/compact"，复用 slash 解析路径）。
@@ -4239,7 +4259,7 @@ export function SessionPane({
       return;
     }
     // 预检 warning 已由选择 Dock 的状态入口展示；shareWarnings 只接收发布最终结果，
-    // 避免把“分享已完成”文案提前带入尚未发布的确认阶段。
+    // 避免把"分享已完成"文案提前带入尚未发布的确认阶段。
     updateShareDockState(sessionId, { error: null });
     goToShareConfiguration(sessionId);
   }, [goToShareConfiguration, sessionId, sharePreflight, sharePublishing, updateShareDockState]);
@@ -4440,6 +4460,8 @@ export function SessionPane({
       onSelectModel={handleSelectModel}
       onSelectThought={handleSelectThought}
       onSwitchMode={handleSwitchMode}
+      onSetSystemPrompt={handleSetSystemPrompt}
+      activeSystemPrompt={draftConfig.systemPrompt}
       onOpenRunningBackgroundWorks={
         sessionId && runningBackgroundWorkCount > 0 ? handleOpenRunningBackgroundWorks : undefined
       }

@@ -342,7 +342,9 @@ export interface AgentRuntime {
   beginShutdown(): void;
   closeBrowserSession(): Promise<void>;
   updateConfig(
-    patch: Pick<AgentRuntimeConfig, "mode" | "planEnabled" | "language" | "outputStyle">,
+    patch: Pick<AgentRuntimeConfig, "mode" | "planEnabled" | "language" | "outputStyle"> & {
+      systemPrompt?: string;
+    },
   ): void;
   initializeSessionShellEnvironmentIfNeeded(
     selection: ExecutionShellSelection | (() => ExecutionShellSelection),
@@ -490,7 +492,7 @@ export interface AgentRuntime {
   /**
    * 注册表被外部改写后让 getTools 重算。公开它的唯一使用者是 dwf driver 的 submit profile 运行时
    * 守卫：静态 profile 与实际 ask 不符时把
-   * typed 的 submit_result 换回通用声明——改的是同一个注册表，缓存不失效就会继续把旧声明发给模型。
+   * typed 的 submit_result 换回通用声明--改的是同一个注册表，缓存不失效就会继续把旧声明发给模型。
    */
   invalidateToolCache(): void;
   getToolExecutor(): ToolExecutor;
@@ -506,7 +508,7 @@ export interface AgentRuntime {
   /**
    * 外部子 runtime 的接缝（二）：把子会话的原始事件扇出给本 runtime 的外部 sink 集
    * （保留子 sessionId、只通知不 append）。**必须在子 runtime 构造期装成它的
-   * `deps.eventSink`**——理由见 `methods/config.ts` 的实现注释。
+   * `deps.eventSink`**--理由见 `methods/config.ts` 的实现注释。
    */
   notifyExternalChildSessionEvent(input: {
     childSessionId: SessionId;
@@ -516,7 +518,7 @@ export interface AgentRuntime {
   /**
    * 外部子 runtime 的接缝（三）：铸造子 runtime 的对外交互端口（permission broker +
    * provider runtime headers），已绑定本 runtime 的客户端路由身份。class 外构造的子 runtime
-   * **必须**经这里取这两个端口，不能自行从 appOptions 取——理由见 `methods/config.ts` 的实现注释。
+   * **必须**经这里取这两个端口，不能自行从 appOptions 取--理由见 `methods/config.ts` 的实现注释。
    */
   createChildClientPorts(context: ChildClientPortsContext): ClientFacingPorts;
   getContextBuilder(): ContextBuilder;

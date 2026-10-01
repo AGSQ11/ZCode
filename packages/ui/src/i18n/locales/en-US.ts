@@ -5862,6 +5862,14 @@ const enUS: Record<string, string> = {
   "chat.permission.approveAlways": "Always allow",
   "chat.permission.allowForSession": "Allow for session",
   "chat.permission.responseFailed": "Approval did not complete. Please retry.",
+  "chat.systemPrompt.label": "System prompt",
+  "chat.systemPrompt.description": "Override the system prompt for this session",
+  "chat.systemPrompt.dialogDescription":
+    "Applies only to this session and takes precedence over the global system prompt. Leave empty to use the default.",
+  "chat.systemPrompt.placeholder": "Enter a session system prompt...",
+  "chat.systemPrompt.apply": "Apply",
+  "chat.systemPrompt.clear": "Clear",
+  "chat.systemPrompt.active": "· overridden",
   "chat.permission.fullAccess": "Full access",
   "chat.permission.fullAccess.description":
     "Grant the agent full access without further confirmation.",
