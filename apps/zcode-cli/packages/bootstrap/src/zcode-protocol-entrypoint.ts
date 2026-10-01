@@ -320,6 +320,19 @@ export async function runZCodeProtocolAgent(
               .map((model) => ({ providerId: provider.providerId, modelId: model.modelId })),
           );
       },
+      getRegistryProviderConnection: (providerId) => {
+        // 「获取全部模型」需要 baseUrl + apiKey 发起 GET /models；只读进程内快照。
+        const snapshot = activeProviderRegistryRuntime.runtime.registryService.getSnapshot();
+        const provider = snapshot?.registry.providers.find((p) => p.providerId === providerId);
+        if (!provider) return undefined;
+        const access = provider.config.access;
+        const apiKey = access.type !== "zhipu-account" ? access.apiKey : undefined;
+        return {
+          baseUrl: provider.config.api.baseUrl,
+          ...(apiKey ? { apiKey } : {}),
+          ...(provider.config.api.headers ? { headers: provider.config.api.headers } : {}),
+        };
+      },
       version: options.version,
     }));
     officialMcpAuthContext = server.officialMcpAuthRequestContext;

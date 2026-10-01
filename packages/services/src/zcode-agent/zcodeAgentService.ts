@@ -84,6 +84,7 @@ import {
   zcodeProviderModelProbeGetViewResultSchema,
   zcodeProviderModelProbeProbeAllResultSchema,
   zcodeProviderModelProbeUpdateConfigResultSchema,
+  zcodeProviderListRemoteModelsResultSchema,
   zcodeOfficialMcpAuthHeadersRequestParamsSchema,
   summarizeOfficialMcpIdentityHeaders,
   zcodeProtocolEmptyResultSchema,
@@ -170,6 +171,7 @@ import type {
   ZCodeAgentModelProbeGetViewParams,
   ZCodeAgentModelProbeProbeAllParams,
   ZCodeAgentModelProbeUpdateConfigParams,
+  ZCodeAgentListRemoteModelsParams,
   ZCodeAgentGoalParams,
   ZCodeAgentGrantWorkspaceHookTrustParams,
   ZCodeAgentInitializeResult,
@@ -4822,6 +4824,22 @@ export function createZCodeAgentService(
         zcodeProtocolMethods.providerModelProbeUpdateConfig,
         { workspace: buildWorkspaceRef(params), config: params.config },
         zcodeProviderModelProbeUpdateConfigResultSchema,
+        { signal: params.signal },
+      );
+    },
+
+    async listRemoteModels(params: ZCodeAgentListRemoteModelsParams) {
+      const client = await getClient(params);
+      // 与连通性/探测同一前置链：Provider 连接事实需要账号层配置先同步进 CLI 进程。
+      await ensureAccountProviderConfigSynced({
+        client,
+        reason: "provider_list_remote_models",
+        workspace: params,
+      });
+      return client.request(
+        zcodeProtocolMethods.providerListRemoteModels,
+        { workspace: buildWorkspaceRef(params), providerId: params.providerId },
+        zcodeProviderListRemoteModelsResultSchema,
         { signal: params.signal },
       );
     },

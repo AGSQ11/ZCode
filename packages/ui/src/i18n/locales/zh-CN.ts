@@ -3217,6 +3217,8 @@ const zhCN: Record<string, string> = {
   "settings.modelProvider.modelConfigIncomplete": "模型配置不完整",
   "settings.modelProvider.models": "模型列表",
   "settings.modelProvider.modelsEmpty": "当前没有配置模型，添加模型后可在聊天中使用。",
+  "settings.modelProvider.fetchAllModels": "获取全部模型",
+  "settings.modelProvider.fetchingAll": "正在导入 {added}/{total}...",
   "settings.modelProvider.addModel": "添加模型",
   "settings.modelProvider.modelId": "模型 ID",
   "settings.modelProvider.modelDisplayName": "显示名称",

@@ -3439,6 +3439,8 @@ const enUS: Record<string, string> = {
   "settings.modelProvider.modelConfigIncomplete": "Model configuration is incomplete",
   "settings.modelProvider.models": "Model list",
   "settings.modelProvider.modelsEmpty": "No models are configured. Add a model to use it in chat.",
+  "settings.modelProvider.fetchAllModels": "Fetch all models",
+  "settings.modelProvider.fetchingAll": "Importing {added}/{total}...",
   "settings.modelProvider.addModel": "Add model",
   "settings.modelProvider.modelId": "Model ID",
   "settings.modelProvider.modelDisplayName": "Display name",

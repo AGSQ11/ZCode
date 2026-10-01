@@ -68,6 +68,12 @@ export interface IProviderSettingsService {
   testModelConnectivity(
     input: ProviderSettingsConnectivityRequest,
   ): Promise<ModelConnectivityResult>;
+  /** 「获取全部模型」：从 Provider API 拉取可用模型 id 列表。 */
+  listRemoteModels(input: {
+    workspacePath?: string;
+    workspaceIdentity?: string;
+    providerId: ProviderId;
+  }): Promise<{ models: readonly { id: string }[] }>;
 }
 
 export const IProviderSettingsService = createServiceDescriptor<IProviderSettingsService>(
@@ -87,6 +93,17 @@ export interface ProviderSettingsConnectivityRequest {
   readonly providerId: ProviderId;
   readonly modelId: ModelId;
 }
+
+/** 「获取全部模型」的输入：只需要 Provider 身份，不需要具体 Model。 */
+export interface ProviderSettingsRemoteModelsInput {
+  readonly workspacePath?: string;
+  readonly workspaceIdentity?: string;
+  readonly providerId: ProviderId;
+}
+
+export type ProviderSettingsRemoteModelsTester = (
+  input: ProviderSettingsRemoteModelsInput,
+) => Promise<{ models: readonly { id: string }[] }>;
 
 export type ProviderSettingsConnectivityTester = (
   input: ProviderSettingsConnectivityTestInput,
@@ -110,6 +127,7 @@ export function createProviderSettingsService(
   facade: ProviderSettingsFacade,
   ensureReady: () => Promise<void> = async () => {},
   testConnectivity?: ProviderSettingsConnectivityTester,
+  listRemoteModels?: ProviderSettingsRemoteModelsTester,
 ): IProviderSettingsService {
   return {
     onDidChange: toEvent((listener) => facade.onDidChange(listener)),
@@ -204,6 +222,17 @@ export function createProviderSettingsService(
         ...(input.workspaceIdentity ? { workspaceIdentity: input.workspaceIdentity } : {}),
         providerId: input.providerId,
         modelId: input.modelId,
+      });
+    },
+    listRemoteModels: async (input) => {
+      await ensureReady();
+      if (!listRemoteModels) {
+        throw new Error("当前 Environment 未装配模型列表拉取能力");
+      }
+      return listRemoteModels({
+        ...(input.workspacePath ? { workspacePath: input.workspacePath } : {}),
+        ...(input.workspaceIdentity ? { workspaceIdentity: input.workspaceIdentity } : {}),
+        providerId: input.providerId,
       });
     },
   };

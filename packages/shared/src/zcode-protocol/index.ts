@@ -2496,6 +2496,25 @@ export type ZCodeProviderModelProbeUpdateConfigResult = z.infer<
   typeof zcodeProviderModelProbeUpdateConfigResultSchema
 >;
 
+// 「获取全部模型」：从 Provider API 的 GET {baseUrl}/models 拉取可用模型 id 列表。
+export const zcodeProviderListRemoteModelsParamsSchema = z
+  .object({
+    workspace: zcodeWorkspaceRefSchema,
+    providerId: nonEmptyString,
+  })
+  .strict();
+export type ZCodeProviderListRemoteModelsParams = z.infer<
+  typeof zcodeProviderListRemoteModelsParamsSchema
+>;
+export const zcodeProviderListRemoteModelsResultSchema = z
+  .object({
+    models: z.array(z.object({ id: nonEmptyString }).strict()),
+  })
+  .strict();
+export type ZCodeProviderListRemoteModelsResult = z.infer<
+  typeof zcodeProviderListRemoteModelsResultSchema
+>;
+
 export const zcodeProviderUpdateAccountConfigParamsSchema = z
   .object({
     revision: nonEmptyString,
@@ -3997,6 +4016,8 @@ export const zcodeProtocolMethods = {
   providerModelProbeGetView: "provider/modelProbeGetView",
   providerModelProbeProbeAll: "provider/modelProbeProbeAll",
   providerModelProbeUpdateConfig: "provider/modelProbeUpdateConfig",
+  // 从 Provider API 拉取可用模型列表（GET {baseUrl}/models），供「获取全部模型」批量导入。
+  providerListRemoteModels: "provider/listRemoteModels",
   mcpList: "mcp/list",
   mcpReadResource: "mcp/readResource",
   mcpUiOpenInstance: "mcp/uiOpenInstance",

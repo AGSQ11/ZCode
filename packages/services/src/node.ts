@@ -1637,7 +1637,7 @@ export function createLocalServices(options: {
     },
   );
   let providerConnectivityAgentService:
-    | Pick<IZCodeAgentService, "testModelConnectivity">
+    | Pick<IZCodeAgentService, "testModelConnectivity" | "listRemoteModels">
     | undefined;
   const providerRuntime = createProviderRuntimeFromConfigRuntime({
     configRuntime: providerConfigRuntime,
@@ -1653,6 +1653,16 @@ export function createLocalServices(options: {
         return providerConnectivityAgentService.testModelConnectivity(input);
       },
     }),
+    listRemoteModels: async (input) => {
+      if (!providerConnectivityAgentService) {
+        throw new Error("Agent Service 尚未完成模型列表拉取装配");
+      }
+      return providerConnectivityAgentService.listRemoteModels({
+        providerId: input.providerId,
+        workspacePath: input.workspacePath ?? options?.zcodeAgentSpawnFallbackCwd ?? process.cwd(),
+        ...(input.workspaceIdentity ? { workspaceIdentity: input.workspaceIdentity } : {}),
+      });
+    },
     disposeAccountSource: () => {
       disposeAccountProviderInvalidation();
       accountProviderRefreshErrorDispose();

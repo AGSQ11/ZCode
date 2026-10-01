@@ -64,6 +64,7 @@ import {
   readWorkspacePresentation,
   testProviderModelConnectivity,
 } from "./workspace-model-runtime.js";
+import { listProviderRemoteModels } from "./remote-models.js";
 import {
   attachModelProbeSink,
   getProbeEngine,
@@ -709,6 +710,8 @@ export class ZCodeProtocolAgentServer {
         await engine.updateConfig(params.config);
         return zcodeProviderModelProbeUpdateConfigResultSchema.parse(await engine.getView());
       }
+      case zcodeProtocolMethods.providerListRemoteModels:
+        return await listProviderRemoteModels(this.context, request.params);
       case zcodeProtocolMethods.mcpList:
         return await listMcpServers(this.context, request.params);
       case zcodeProtocolMethods.mcpReadResource:
