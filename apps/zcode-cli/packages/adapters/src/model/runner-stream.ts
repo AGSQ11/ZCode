@@ -540,7 +540,7 @@ export async function* runStreamText(input: {
               attempt,
               maxAttempts: input.retry.maxAttempts,
               retryCount: emptyCompletionRetryCount,
-              singlePhysicalAttempt: input.retryBudget === "single_physical_attempt",
+              singlePhysicalAttempt: input.request.modelRetryBudget === "single_physical_attempt",
             })
           ) {
             const responseHeaders = await resolveStreamResponseHeaders(streamResult);

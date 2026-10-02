@@ -119,6 +119,7 @@ import {
 import { appendWorkspaceFileMentionToComposer } from "@/lib/workspaceFileComposer.js";
 import { resolveProviderBaseURL } from "@/lib/registryProviderView.js";
 import type { ModelSelectionView } from "@zcode/services";
+import type { ModelGroup } from "@zcode/shared/model-group-types";
 import type { ModelSelectionState } from "@/hooks/useModelSelectionView.js";
 import type { ZCodeUiError } from "@/lib/zcodeUiError.js";
 import {
@@ -433,6 +434,10 @@ interface ConversationComposerProps {
     model: string,
     sourceModel: ModelSelectionSource | null,
   ) => void;
+  /** 选中模型组（group execution target）；宿主写入 group 目标并清空模型选择。 */
+  onSelectGroup?: (groupId: string) => void;
+  /** Composer 可选的模型组目录（enabled groups）。 */
+  modelGroupTargets?: readonly ModelGroup[];
   /** 选中思考深度；同时带上用户操作时看到的模型，避免异步回流后把 thought 归到另一模型。 */
   onSelectThought: (thought: string, modelContext: { provider: string; model: string }) => void;
   onSwitchMode: (mode: string) => void;
@@ -527,6 +532,8 @@ function ConversationComposerImpl({
   onDraftStateChange,
   onStop,
   onSelectModel,
+  onSelectGroup,
+  modelGroupTargets = [],
   onSelectThought,
   onSwitchMode,
   onSetSystemPrompt,
@@ -2100,6 +2107,8 @@ function ConversationComposerImpl({
             activeConfigPicker={activeConfigPicker}
             onConfigPickerOpenChange={handleConfigPickerOpenChange}
             onSelectModel={handleSelectModelTrace}
+            onSelectGroup={onSelectGroup}
+            modelGroupTargets={modelGroupTargets}
             onSelectThought={onSelectThought}
             onSwitchMode={onSwitchMode}
             onSetSystemPrompt={onSetSystemPrompt}
@@ -2158,9 +2167,11 @@ function ConversationComposerImpl({
       handleConfigPickerOpenChange,
       mode,
       handleSelectModelTrace,
+      modelGroupTargets,
       modelSelectionReload,
       modelSelectionState,
       modelSelectionView,
+      onSelectGroup,
       onSelectThought,
       onRecoverCustomModelSelection,
       onSendCompressionCommand,

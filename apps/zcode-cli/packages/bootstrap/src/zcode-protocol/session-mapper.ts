@@ -364,12 +364,23 @@ export function shouldExposeSessionEventToProtocol(event: SessionEvent): boolean
   }
 
   if (event.type === SessionEventType.DynamicWorkflowRunProgress) {
-    // 与上面同一个 seam、同一个理由：workflow run 事件对 v3 完全同构——v4 面已有权威投影
+    // 与上面同一个 seam、同一个理由：workflow run 事件对 v3 完全同构--v4 面已有权威投影
     // （workflowRuns 状态键），v3 mapper 不消费这些内部状态，继续透出只是把每个节点相位
     // 迁移都跨进程搬一遍。**注意与前置特性的偏斜危害不同**：这里的剥离不是为了防丢事件，
     // 新类型不会被 v3 拒收（mapSessionEventType 的 default 落到 session.updated，其 payload
     // 是宽松的 jsonObjectSchema），纯粹是带宽与语义干净。
     return false;
+  }
+
+  if (event.type === SessionEventType.ModelGroupRouted) {
+    // P2-5：与 ModelSelected 同一曝光裁定--模型生命周期事实透出给 v3，由
+    // mapSessionEventType 的 default 映射为 session.updated；该类型的 payload envelope
+    // 是宽松的 jsonObjectSchema（z.record），不认识 model_group_routed 的旧 v3 客户端
+    // 解析不受损（payload 里的 actualSelection/groupId 只是未知字段，不会被当成模型切换
+    // 消费：v3 模型显示读的是 session 快照而非 session.updated payload）。不剥离的另一面：
+    // 组路由每次逻辑请求至多 maxMemberAttempts 条，带宽与 ModelSelected 同量级，
+    // 不满足上面两类内部账本事件的剥离门槛。
+    return true;
   }
 
   if (event.type !== SessionEventType.ModelStreaming) {
@@ -856,7 +867,7 @@ function mapPendingPermission(permission: PendingPermission): ZCodePendingPermis
   // 的产物：今天把 zcodePendingPermissionSchema（shared/src/zcode-protocol/index.ts:1139）和
   // zcodePermissionRequestedEventPayloadSchema（同文件:1536）改成可选，也保护不了已经装出去
   // 的旧桌面。新 CLI 一旦在 v3 路径上带这两个字段，旧桌面会整份快照解析失败、并用 safeParse
-  // 静默丢弃整个 permission.requested 事件——确认窗本身就没了，这违反"只允许预览降级、
+  // 静默丢弃整个 permission.requested 事件--确认窗本身就没了，这违反"只允许预览降级、
   // 不允许 gate 降级"。剥离在源头是唯一对版本偏斜安全的做法；legacy 也没有画因果图的界面。
   // optionsPolicy 的效果仍然生效：它作为 buildProtocolPermissionOptions 的输入裁掉
   // allow_always，只有裁剪后的 options 列表过协议。会话免确认同样降级为裁剪：

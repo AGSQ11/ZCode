@@ -281,6 +281,8 @@ export class AgentRuntime {
     this.modelRequestAdmission = deps.modelRequestAdmission;
     this.modelGroupRouter = deps.modelGroupRouter;
     this.sessionExecutionTarget = config.executionTarget;
+    // 模型组配置的读取点是 methods/turn-model.ts 的 runtime.config.modelGroupsConfig
+    // （函数或快照均可，由该处消费时解析），ctor 不做二次拷贝。
     // 旧会话的选择缺失不能阻断历史恢复；不在这里制造默认模型。
     this.sessionModelSelection =
       config.modelSelection && cloneModelSelection(config.modelSelection);

@@ -123,10 +123,34 @@ export function setSessionExecutionTarget(
   this: AgentRuntimeInternal,
   target: import("@zcode/shared/model-group-types").ExecutionTarget | undefined,
 ): void {
+  const previous = this.sessionExecutionTarget;
   this.sessionExecutionTarget = target;
   if (target?.kind === "model") {
     this.sessionModelSelection = cloneModelSelection(target.selection);
   }
+  // P1-1（spec §6）：执行目标变化后旧 turn pin 立即失效——pin 只在同一目标、
+  // 同一用户 turn 内有意义；目标不变时保留 pin（turn 中途的同目标刷新不打断亲和）。
+  if (!sameExecutionTarget(previous, target)) {
+    this.turnPinnedMemberId = undefined;
+  }
+}
+
+function sameExecutionTarget(
+  left: import("@zcode/shared/model-group-types").ExecutionTarget | undefined,
+  right: import("@zcode/shared/model-group-types").ExecutionTarget | undefined,
+): boolean {
+  if (left === right) return true;
+  if (!left || !right) return false;
+  if (left.kind !== right.kind) return false;
+  if (left.kind === "group" && right.kind === "group") return left.groupId === right.groupId;
+  if (left.kind === "model" && right.kind === "model") {
+    return (
+      left.selection.providerId === right.selection.providerId &&
+      left.selection.modelId === right.selection.modelId &&
+      left.selection.options?.reasoningLevel === right.selection.options?.reasoningLevel
+    );
+  }
+  return false;
 }
 
 export function getProjectId(this: AgentRuntimeInternal): ProjectId {

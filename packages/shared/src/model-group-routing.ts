@@ -3,6 +3,42 @@ import type {
   RoutingStrategy,
 } from "./model-group-types.js";
 
+/**
+ * Computes the absolute request deadline from a monotonic start timestamp and a
+ * relative budget. requestDeadlineMs 超出安全整数范围时按 0 处理并截断到
+ * Number.MAX_SAFE_INTEGER，避免溢出后 deadline 反而落在过去导致立即超时。
+ *
+ * @param nowMs Monotonic timestamp (ms) at which the logical request begins.
+ * @param requestDeadlineMs Relative deadline budget in ms (spec: integer 1000..1800000).
+ * @returns Absolute deadline timestamp (ms), capped at Number.MAX_SAFE_INTEGER.
+ */
+export function computeRequestDeadlineMs(nowMs: number, requestDeadlineMs: number): number {
+  const start = Number.isFinite(nowMs) ? Math.max(0, Math.floor(nowMs)) : 0;
+  const budget =
+    Number.isFinite(requestDeadlineMs) && requestDeadlineMs > 0
+      ? Math.min(Math.floor(requestDeadlineMs), Number.MAX_SAFE_INTEGER)
+      : 0;
+  if (start >= Number.MAX_SAFE_INTEGER - budget) {
+    return Number.MAX_SAFE_INTEGER;
+  }
+  return start + budget;
+}
+
+/**
+ * Compares a monotonic timestamp against an absolute deadline.
+ * 使用 >= 语义：到达 deadline 即视为超时，与 spec §9 的 GROUP_DEADLINE_EXCEEDED 一致；
+ * 非有限或负值输入按未超时处理，避免 NaN/Infinity 比较产生歧义。
+ *
+ * @param nowMs Current monotonic timestamp (ms).
+ * @param deadlineAt Absolute deadline timestamp (ms) from computeRequestDeadlineMs.
+ * @returns true when nowMs has reached or passed deadlineAt.
+ */
+export function isDeadlineExceeded(nowMs: number, deadlineAt: number): boolean {
+  if (!Number.isFinite(nowMs) || !Number.isFinite(deadlineAt)) return false;
+  if (nowMs < 0 || deadlineAt < 0) return false;
+  return nowMs >= deadlineAt;
+}
+
 export interface EndpointMetricKey {
   readonly authorityScope: string;
   readonly connectionId: string;

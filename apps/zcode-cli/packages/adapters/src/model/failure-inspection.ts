@@ -293,6 +293,17 @@ export function parseRetryAfterMs(headers?: Record<string, string>): number | un
     return undefined;
   }
 
+  return clampToSafeDelayMs(parseRetryAfterMsHeaderValue(headers));
+}
+
+/**
+ * 只负责把 Retry-After 头解析成毫秒（不做合理性/上限判断）；供归一化上下文
+ * （toAdapterError）原样透出 provider 指示的等待时长--路由层要用它计算
+ * effectiveCooldownMs，不能被本地退避的「合理等待」口径裁剪。
+ */
+export function parseRetryAfterMsHeaderValue(
+  headers: Record<string, string>,
+): number | undefined {
   const retryAfterMs = parseNumericHeaderMs(findHeaderValue(headers, "retry-after-ms"));
   if (retryAfterMs !== undefined) {
     return retryAfterMs;
@@ -314,6 +325,14 @@ export function parseRetryAfterMs(headers?: Record<string, string>): number | un
   }
 
   return undefined;
+}
+
+/** 解析/换算结果只允许钳到安全整数；不给 provider 指示的合法等待设时长上限。 */
+function clampToSafeDelayMs(value: number | undefined): number | undefined {
+  if (value === undefined || !Number.isFinite(value)) {
+    return undefined;
+  }
+  return Math.min(Math.max(0, value), Number.MAX_SAFE_INTEGER);
 }
 
 function findHeaderValue(headers: Record<string, string>, name: string): string | undefined {

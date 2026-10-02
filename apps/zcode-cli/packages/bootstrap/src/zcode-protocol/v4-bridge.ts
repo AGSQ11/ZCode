@@ -1508,6 +1508,10 @@ export function createConversationV4Gateway(
         record.app.runtime.getSessionModelSelection() ?? record.restoredModelSelection;
       return {
         modelSelection: cloneModelSelection(selection),
+        // P1-5 修复：种子必须携带结构化执行目标（组意图），否则 createSession.config /
+        // switchModelConfig 写入 runtime 的 group target 永远进不了 v4 快照的
+        // config.executionTarget--投影 seedConfig 只填事件未触碰的字段，种子是唯一通道。
+        executionTarget: record.app.runtime.getSessionExecutionTarget(),
         provider: selection?.providerId ?? "",
         model: selection?.modelId ?? "",
         thought: selection?.options?.reasoningLevel ?? "",

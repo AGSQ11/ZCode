@@ -57,7 +57,10 @@ import {
   resolveModelSelectTriggerDisplay,
   shouldShowManageModelsAction,
 } from "@/chat-input-toolbar/modelSelection.js";
-import { resolveV4ModelTriggerDisplay } from "@/v4/composer/modelTriggerDisplay.js";
+import {
+  resolveV4GroupTriggerDisplay,
+  resolveV4ModelTriggerDisplay,
+} from "@/v4/composer/modelTriggerDisplay.js";
 import {
   setPendingSettingsSectionIntent,
   setPendingSettingsUsageCodingPlanIntent,
@@ -83,6 +86,7 @@ import { useCodingPlanUpgradeDialog } from "@/settings/CodingPlanUpgradeDialogPr
 import { useCodingPlanEntitlements } from "@/settings/model-provider-section/useCodingPlanEntitlements.js";
 import { decodeCustomModelValue, encodeCustomModelValue } from "@/lib/zcodeCustomModelValue.js";
 import { buildRegistryModelSelectGroups } from "@/lib/modelSelectionGroups.js";
+import type { ModelGroup } from "@zcode/shared/model-group-types";
 import { useModelProbeStatus, modelProbeStatusKey } from "@/hooks/useModelProbeStatus.js";
 import {
   buildCodingPlanUsageSources,
@@ -353,6 +357,8 @@ export interface V4ComposerToolbarProps {
     model: string,
     sourceModel: ModelSelectionSource | null,
   ) => void;
+  /** 选中模型组；由 Composer owner 写入 group 执行目标并清空模型选择。 */
+  onSelectGroup?: (groupId: string) => void;
   /** 选中思考深度；modelContext 固定本次用户操作的目标模型。 */
   onSelectThought: (thought: string, modelContext: { provider: string; model: string }) => void;
   onSwitchMode: (mode: string) => void;
@@ -366,6 +372,8 @@ export interface V4ComposerToolbarProps {
     sourceModel: ModelSelectionSource | null,
   ) => Promise<void> | void;
   onSendCompressionCommand?: (command: string) => void;
+  /** 可选的模型组目录（enabled groups）；提供时模型菜单追加「Model groups」分组。 */
+  modelGroupTargets?: readonly ModelGroup[];
 }
 
 /** 模型 / 思考深度 / context usage 簇（渲染在发送键左侧，与旧 UI 同位）。 */
@@ -385,9 +393,11 @@ function V4ComposerModelControlsImpl({
   activeConfigPicker,
   onConfigPickerOpenChange,
   onSelectModel,
+  onSelectGroup,
   onSelectThought,
   onSendCompressionCommand,
   onRecoverCustomModelSelection,
+  modelGroupTargets = [],
 }: V4ComposerToolbarProps) {
   const { intl, locale } = useZCodeIntl();
   const { openCodingPlanUpgrade } = useCodingPlanUpgradeDialog();
@@ -765,6 +775,27 @@ function V4ComposerModelControlsImpl({
     });
   }, [displayProvider, intl, modelSelectionView]);
 
+  // 模型组目录：值编码为 `group:<groupId>`，与普通 provider/model 编码区分。
+  const modelGroupSelectGroup = useMemo<ModelSelectGroup | null>(() => {
+    if (modelGroupTargets.length === 0) return null;
+    return {
+      key: "model-groups",
+      label: intl.formatMessage({ id: "chat.toolbar.model.modelGroups" }),
+      directItems: true,
+      items: modelGroupTargets.map((group) => ({
+        key: `model-group:${group.id}`,
+        value: `group:${group.id}`,
+        name: group.name,
+        badgeLabel: group.workloadLevel.toUpperCase(),
+      })),
+    };
+  }, [intl, modelGroupTargets]);
+
+  const mergedModelSelectGroups = useMemo<ModelSelectGroup[]>(
+    () => (modelGroupSelectGroup ? [...modelSelectGroups, modelGroupSelectGroup] : modelSelectGroups),
+    [modelSelectGroups, modelGroupSelectGroup],
+  );
+
   // 订阅模型探测状态，按 ModelConfigSelect 的 item.key 重排，保持 presentation 层无 key 知识。
   const { statusMap: modelProbeStatusMap } = useModelProbeStatus(
     workspacePath,
@@ -799,8 +830,18 @@ function V4ComposerModelControlsImpl({
     id: "chat.toolbar.model.manageModels",
   });
 
+  const selectedGroupTarget = useMemo(() => {
+    const target = draftConfig?.executionTarget;
+    if (target?.kind !== "group") return null;
+    return modelGroupTargets.find((group) => group.id === target.groupId) ?? null;
+  }, [draftConfig?.executionTarget, modelGroupTargets]);
+
   // 当前投影模型的编码值：provider 命中目录则按自定义模型编码，否则回落裸 model id。
   const rawModelValue = useMemo(() => {
+    // group 目标没有 provider/model 投影；用 group 编码值驱动菜单选中态。
+    if (draftConfig?.executionTarget?.kind === "group") {
+      return `group:${draftConfig.executionTarget.groupId}`;
+    }
     if (!effectiveConfig || !effectiveConfig.model) return "";
     const providerExists = modelSelectionView?.providers.some(
       (candidate) => candidate.providerId === effectiveConfig.provider,
@@ -809,7 +850,7 @@ function V4ComposerModelControlsImpl({
       return encodeCustomModelValue(effectiveConfig.provider, effectiveConfig.model);
     }
     return effectiveConfig.model;
-  }, [effectiveConfig, modelSelectionView]);
+  }, [draftConfig?.executionTarget, effectiveConfig, modelSelectionView]);
 
   // 触发器显示兜底--`<synthetic>`（Claude SDK 恢复合成模型）或当前模型
   // 不在可选组（失效/下线/退登）→ 回落占位/默认「选择模型」，不直显协议内部占位符或失效
@@ -818,11 +859,11 @@ function V4ComposerModelControlsImpl({
     () =>
       resolveModelSelectTriggerDisplay(
         rawModelValue,
-        modelSelectGroups,
+        mergedModelSelectGroups,
         showManageModelsAction,
         manageModelsLabel,
       ),
-    [manageModelsLabel, modelSelectGroups, rawModelValue, showManageModelsAction],
+    [manageModelsLabel, mergedModelSelectGroups, rawModelValue, showManageModelsAction],
   );
   const normalizedModelValue = triggerDisplay.value ?? "";
 
@@ -830,27 +871,43 @@ function V4ComposerModelControlsImpl({
     // 非可选值（未选 / synthetic / 不可用）：占位文案或默认「选择模型」。
     const fallbackLabel =
       triggerDisplay.placeholder ?? intl.formatMessage({ id: "chat.toolbar.model.label" });
+    // group 目标不属于 provider/model 目录，单独按组名显示。
+    const groupDisplay = resolveV4GroupTriggerDisplay({
+      executionTarget: draftConfig?.executionTarget,
+      groupName: selectedGroupTarget?.name,
+      groupBadgeLabel: intl.formatMessage({ id: "chat.toolbar.model.groupBadge" }),
+    });
+    if (groupDisplay) return groupDisplay;
     const providerName =
       modelSelectionView?.providers.find(
         (candidate) => candidate.providerId === effectiveConfig?.provider,
       )?.providerName ?? undefined;
     return resolveV4ModelTriggerDisplay({
-      modelGroups: modelSelectGroups,
+      modelGroups: mergedModelSelectGroups,
       normalizedValue: normalizedModelValue,
       fallbackLabel,
       providerId: effectiveConfig?.provider,
       providerName,
     });
   }, [
+    draftConfig?.executionTarget,
+    selectedGroupTarget,
     effectiveConfig?.provider,
     intl,
     modelSelectionView,
-    modelSelectGroups,
+    mergedModelSelectGroups,
     normalizedModelValue,
     triggerDisplay.placeholder,
   ]);
   const handleModelValueChange = useCallback(
     (value: string) => {
+      // 模型组选项：编码为 group:<groupId>，交给 Composer owner 写 group 目标并清空模型选择。
+      if (value.startsWith("group:")) {
+        const groupId = value.slice("group:".length);
+        logger.debug("[v4-toolbar] group select onValueChange", { groupId, draftMode });
+        onSelectGroup?.(groupId);
+        return;
+      }
       const decoded = decodeCustomModelValue(value);
       // 草稿的点击时可见模型可能只存在于 catalog，或已经被最新 draft
       // intent 覆盖，不能让 SessionPane 再从迟到的 prewarm projection 反推。
@@ -912,6 +969,7 @@ function V4ComposerModelControlsImpl({
       effectiveConfig?.model,
       effectiveConfig?.provider,
       onRecoverCustomModelSelection,
+      onSelectGroup,
       onSelectModel,
       modelSelectionView,
       workspaceIdentity,
@@ -1000,7 +1058,7 @@ function V4ComposerModelControlsImpl({
   // 模式循环（Ctrl+Shift+M）由 V4ComposerModeSwitch 单独绑定（modeOption 在彼处）。
   // 模型留空是正常的待选择状态，包括已有会话；不能因为没有已选模型隐藏重选入口。
   // 有可选组时正常显示；无组但有「管理模型」入口时也显示，避免用户零模型入口。
-  const modelMenuVisible = modelSelectGroups.length > 0 || showManageModelsAction;
+  const modelMenuVisible = mergedModelSelectGroups.length > 0 || showManageModelsAction;
   const providerSubmenuClassName = undefined;
   useToolbarShortcutBindings({
     hasAnyOption: Boolean(modelOption) || Boolean(thoughtOption),
@@ -1073,7 +1131,7 @@ function V4ComposerModelControlsImpl({
         </span>
       ) : modelMenuVisible ? (
         <ModelConfigSelect
-          modelGroups={modelSelectGroups}
+          modelGroups={mergedModelSelectGroups}
           modelProbeStatusMap={modelConfigSelectStatusMap}
           normalizedValue={normalizedModelValue}
           triggerLabel={modelTriggerDisplay.fullLabel}

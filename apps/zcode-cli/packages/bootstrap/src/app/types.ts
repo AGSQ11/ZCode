@@ -158,8 +158,12 @@ export interface ZCodeAppOptions {
   configuredDefaultModelSelection?: ModelSelection;
   /** 新 Session 使用的 Environment 默认执行目标（直接模型或模型组）。 */
   configuredDefaultTarget?: ExecutionTarget;
-  /** 当前环境配置的模型组。 */
-  modelGroupsConfig?: ModelGroupsConfig;
+  /**
+   * 当前环境配置的模型组。函数形式每次实时读取（模型组编辑必须影响下一条被
+   * admission 的 turn，不能冻结为启动快照）；快照形式仅用于测试与无 live
+   * repository 的宿主。
+   */
+  modelGroupsConfig?: ModelGroupsConfig | (() => Promise<ModelGroupsConfig | undefined>);
   modelIoFullRetentionEnabled?: boolean;
   /** 同进程嵌入宿主可注入完整的 borrowed 进程级 Owner；Endpoint 配置不得覆盖它。 */
   telemetryOwner?: AgentTelemetryRuntimeOwner;

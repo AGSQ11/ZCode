@@ -203,6 +203,12 @@ export interface AgentRuntimeConfig {
   modelSelection?: ModelSelection;
   /** 执行目标（直接模型或模型组）。 */
   executionTarget?: ExecutionTarget;
+  /**
+   * 当前环境配置的模型组（turn-model 路由的唯一组事实源）。
+   * 函数形式由 bootstrap 接入 live Personal Repository：模型组编辑必须影响
+   * 下一条被 admission 的 turn；快照形式仅用于测试与无 live repository 的宿主。
+   */
+  modelGroupsConfig?: ModelGroupsConfig | (() => Promise<ModelGroupsConfig | undefined>);
   titleGeneration?: {
     enabled?: boolean;
     modelSelection?: ModelSelection;
