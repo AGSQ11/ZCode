@@ -1,4 +1,6 @@
 import { PermissionService, ToolScheduler } from "./deps.js";
+import type { ExecutionTarget, ModelGroupsConfig } from "@zcode/shared/model-group-types";
+import type { ModelGroupRouter } from "./model-group-router.js";
 import type {
   Logger,
   ModelSelection,
@@ -85,6 +87,9 @@ export interface AgentRuntimeInternal
   browserControlPort?: AgentRuntimeDeps["browserControlPort"];
   modelRequestAdmission?: AgentRuntimeDeps["modelRequestAdmission"];
   sessionModelSelection: ModelSelection | undefined;
+  sessionExecutionTarget?: ExecutionTarget | undefined;
+  modelGroupRouter?: ModelGroupRouter | undefined;
+  turnPinnedMemberId?: string | undefined;
   messageHistory: MessageHistory;
   readFileState: ReadFileStateMap;
   cachedTools: ModelToolContract[] | null;

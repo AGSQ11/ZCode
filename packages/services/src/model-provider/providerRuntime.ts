@@ -25,6 +25,10 @@ import {
   type ProviderSettingsConnectivityTester,
   type ProviderSettingsRemoteModelsTester,
 } from "./providerFacadeServices.js";
+import {
+  createModelGroupsService,
+  type IModelGroupsService,
+} from "./modelGroupsService.js";
 
 export interface ProviderRuntimeOptions extends ProviderConfigRuntimeOptions {
   readonly accountSource?: RefreshableProviderSource<AccountProviderConfigSnapshot>;
@@ -68,6 +72,7 @@ export class ProviderRuntime {
   readonly registryService: ProviderRegistryService;
   readonly providerSettings: IProviderSettingsService;
   readonly modelSelection: IModelSelectionService;
+  readonly modelGroups: IModelGroupsService;
   readonly #configRuntime: ProviderConfigRuntime;
   readonly #disposeAccountSource?: () => void;
   readonly #disposeBuiltinRecovery: () => void;
@@ -110,6 +115,7 @@ export class ProviderRuntime {
       dependencies.testConnectivity,
       dependencies.listRemoteModels,
     );
+    this.modelGroups = createModelGroupsService(this.configService, ensureReady);
     this.#modelSelectionRuntime = createModelSelectionService(
       createNodeModelSelectionFacade(this.registryService),
       ensureReady,

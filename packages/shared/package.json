@@ -23,6 +23,8 @@
     "./workspace-hook-mutation": "./src/workspace-hook-mutation.ts",
     "./workspace-hook-review-monotonicity": "./src/workspace-hook-review-monotonicity.ts",
     "./workspace-hook-trust-store-file": "./src/workspace-hook-trust-store-file.ts",
+    "./model-group-types": "./src/model-group-types.ts",
+    "./model-group-routing": "./src/model-group-routing.ts",
     "./gen-ui": "./src/gen-ui/index.ts"
   },
   "scripts": {

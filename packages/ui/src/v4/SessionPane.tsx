@@ -1407,12 +1407,12 @@ export function SessionPane({
       sessionCreateSource?: SessionCreateSource,
     ): Promise<CommandAck> => {
       const submission = submissionConfigFromCommand(type, payload);
-      const acceptRecent = submission
-        ? captureComposerRecentSubmission(workspacePath, submission, workspaceIdentity)
+      const acceptRecent = submission && submission.modelSelection
+        ? captureComposerRecentSubmission(workspacePath, { ...submission, modelSelection: submission.modelSelection }, workspaceIdentity)
         : undefined;
       const acceptSelection =
         submission && (sessionId === null || targetSessionId === sessionId)
-          ? captureAcceptedModelSelection(submission.modelSelection)
+          ? captureAcceptedModelSelection(submission.modelSelection ?? { providerId: "", modelId: "" })
           : undefined;
       const envelope = createCommandEnvelope({
         type,
@@ -2638,7 +2638,7 @@ export function SessionPane({
         // resumeGoal 等控制命令也不应被发送消息确认框截获。
         return "confirmationRequired" as const;
       }
-      if (slashCommand === null || slashCommand.kind === "sendGoalCommand") {
+      if ((slashCommand === null || slashCommand.kind === "sendGoalCommand") && submission.modelSelection) {
         const original = submission.modelSelection;
         const chosen = await recommendStartPlan(original);
         if (!chosen) return "blocked" as const;

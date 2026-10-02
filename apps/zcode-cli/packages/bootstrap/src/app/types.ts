@@ -100,6 +100,10 @@ import type {
   WorkspaceHookReviewDecision,
   WorkspaceHookTrustRevokeTarget,
 } from "@zcode/shared/zcode-protocol-v4";
+import type {
+  ExecutionTarget,
+  ModelGroupsConfig,
+} from "@zcode/shared/model-group-types";
 import type { ModelProviderSourceTitle } from "../model-config.js";
 import type { ZCodeInstalledPluginData } from "../plugins.js";
 import type { SessionTranscriptMessage } from "../session-transcript.js";
@@ -152,6 +156,10 @@ export interface ZCodeAppOptions {
   resolveEffectiveModelSelection?: (selection: ModelSelection) => EffectiveModelSelectionResult;
   /** 新 Session 使用的 Environment 默认选择；仅在没有显式 runtime modelSelection 时参与初始化。 */
   configuredDefaultModelSelection?: ModelSelection;
+  /** 新 Session 使用的 Environment 默认执行目标（直接模型或模型组）。 */
+  configuredDefaultTarget?: ExecutionTarget;
+  /** 当前环境配置的模型组。 */
+  modelGroupsConfig?: ModelGroupsConfig;
   modelIoFullRetentionEnabled?: boolean;
   /** 同进程嵌入宿主可注入完整的 borrowed 进程级 Owner；Endpoint 配置不得覆盖它。 */
   telemetryOwner?: AgentTelemetryRuntimeOwner;

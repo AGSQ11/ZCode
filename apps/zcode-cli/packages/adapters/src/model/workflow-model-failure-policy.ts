@@ -96,7 +96,7 @@ export function resolveWorkflowModelFailurePolicy(
   if (failure.reason === ModelFailureReason.ContextExceeded)
     return { decision: "context_exceeded" };
   // 「请求无效」只认 provider 对**请求**的拒绝（3001、HTTP 400/422）。`invalid_model_response`
-  // 也被分类器标成 invalid_request，但那是**响应**解析失败——再问一次很可能就好，归 retry。
+  // 也被分类器标成 invalid_request，但那是**响应**解析失败--再问一次很可能就好，归 retry。
   if (
     failure.reason === ModelFailureReason.InvalidRequest &&
     failure.code !== ModelErrorCode.InvalidModelResponse
@@ -108,7 +108,7 @@ export function resolveWorkflowModelFailurePolicy(
 
 /**
  * runner 重试闸门的替换点：有界预算照旧读分类器的 `retryable`（主对话一字不动）；无上限
- * 预算（workflow 流量）改读策略表——`retry` 即可重试，`stop` / `context_exceeded` 不重试。
+ * 预算（workflow 流量）改读策略表--`retry` 即可重试，`stop` / `context_exceeded` 不重试。
  * 取消由调用方在此之前单独短路（两处 runner 都已如此）。
  */
 export function retryAllowedByFailurePolicy(
@@ -116,6 +116,7 @@ export function retryAllowedByFailurePolicy(
   retryBudget: ModelRetryBudget | undefined,
   providerCode: string | undefined,
 ): boolean {
+  if (retryBudget === "single_physical_attempt") return false;
   if (!isUnboundedRetryBudget(retryBudget)) return isRetryableFailure(failure);
   return resolveWorkflowModelFailurePolicy(failure, providerCode).decision === "retry";
 }
@@ -135,7 +136,7 @@ export interface WorkflowModelFailureInspection {
 }
 
 /**
- * 按**形状**读 adapter 错误（`AiSdkModelAdapterError`：`name` + `context.reason` …），直接或
+ * 按**形状**读 adapter 错误（`AiSdkModelAdapterError`：`name` + `context.reason` ...），直接或
  * 一层 `cause` 之内；bootstrap 与 adapters 之间可能存在两份类定义（dist 边界），形状不会漂。
  * 不是模型层错误时返回 undefined（driver 照旧归成 DriverError）。
  */

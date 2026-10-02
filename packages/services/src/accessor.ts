@@ -23,6 +23,7 @@ import type {
   IModelSelectionService,
   IProviderSettingsService,
 } from "./model-provider/providerFacadeServices.js";
+import type { IModelGroupsService } from "./model-provider/modelGroupsService.js";
 import type { IModelProbeService } from "./model-probe/modelProbeService.js";
 import type { IUsageStatsService } from "./usage-stats/usageStats.js";
 import type { ICodingPlanSubscriptionService } from "./coding-plan-subscription/codingPlanSubscription.js";
@@ -73,6 +74,8 @@ export interface IServiceAccessor {
   readonly providerSettingsService: IProviderSettingsService;
   /** 当前 Environment Registry 发布的唯一模型选择 View。 */
   readonly modelSelectionService: IModelSelectionService;
+  /** 当前 Environment 的 Model Groups 配置服务。 */
+  readonly modelGroupsService?: IModelGroupsService;
   /** Host 进程内模型健康账本的只读视图与探测命令面。 */
   readonly modelProbeService: IModelProbeService;
   readonly usageStatsService: IUsageStatsService;

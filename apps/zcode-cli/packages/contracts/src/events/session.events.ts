@@ -116,6 +116,7 @@ export const SessionEventType = {
   SystemMessage: "system_message",
   ModelRequest: "model_request",
   ModelSelected: "model_selected",
+  ModelGroupRouted: "model_group_routed",
   ModelStreaming: "model_streaming",
   StreamingToolLedgerUpdated: "streaming_tool_ledger_updated",
   StreamRecoveryAnchorCreated: "stream_recovery_anchor_created",
@@ -244,7 +245,7 @@ export interface TurnAttachmentMeta {
  * 发射侧铸造、有界（summary≤500 / result≤4000 / error≤2000 / reports.preview 逐条≤500、≤8 条 /
  * artifacts ≤8 条、title≤120 / question·context≤4000）；与 shared 的
  * workflowNotificationMetaSchema 保持手工同步。
- * 批量通知轮刻意不携带——一轮一张 manifest 的对应关系在批量下不成立。
+ * 批量通知轮刻意不携带--一轮一张 manifest 的对应关系在批量下不成立。
  */
 export type WorkflowNotificationMeta =
   | {
@@ -306,7 +307,7 @@ export interface BackgroundResultOriginMeta {
 
 /**
  * turn 是否承载真实 Agent 执行。controlOnly 只为可见控制输入建立时间线边界，
- * 不得推进 session running/activeWorks，也不应产生“工作中/已工作”状态。
+ * 不得推进 session running/activeWorks，也不应产生"工作中/已工作"状态。
  */
 export type TurnExecutionKind = "agent" | "controlOnly";
 
@@ -327,7 +328,7 @@ export type TurnBackgroundAttribution =
 
 /**
  * 中枢直接启动已保存工作流的启动轮元数据。同一份同时写进 user message 的 `metadata`（冷恢复来源）与 `TurnStarted`
- * payload（活投影来源）——冷热同形，投影据它画启动卡而不是显示文本。
+ * payload（活投影来源）--冷热同形，投影据它画启动卡而不是显示文本。
  */
 /** 启动元数据上的 display 只允许 create_workflow 这一种投影（与 shared 行 schema 同形）。 */
 export type WorkflowLaunchDisplay = Extract<ToolResultDisplayPayload, { kind: "create_workflow" }>;
@@ -340,7 +341,7 @@ export type WorkflowLaunchDisplay = Extract<ToolResultDisplayPayload, { kind: "c
 export interface WorkflowSettingsAmendMeta {
   /**
    * 被这次调整替代（或接着跑）的那个 run。**缺席即就地生效**：只改并发上界、run 又还在飞时，
-   * 那次「配置」既不停这次 run 也不另起一次，于是没有前驱可指——`runId` 指的就是被调整的那一个。
+   * 那次「配置」既不停这次 run 也不另起一次，于是没有前驱可指--`runId` 指的就是被调整的那一个。
    * 与 shared 的 `workflowSettingsAmendMetaSchema` 同形。
    */
   predecessorRunId?: string;
@@ -372,7 +373,7 @@ export interface WorkflowLaunchMeta {
   description?: string;
   /**
    * 启动前编译得到的 `create_workflow` 结果 display（有界因果图 + 诊断），与 CreateWorkflow 工具行
-   * `display` 同一投影、同一构造函数。run 详情侧板按 toolCallId 找「发起行」取图——直接启动没有
+   * `display` 同一投影、同一构造函数。run 详情侧板按 toolCallId 找「发起行」取图--直接启动没有
    * 工具行，图就从这里取。
    */
   display?: WorkflowLaunchDisplay;
@@ -401,11 +402,11 @@ export const WORKFLOW_LAUNCH_SCRIPT_MAX_CHARS = 256_000;
  * 一个大到 4KB 的实参袋在卡上本就无从展示，所以整体替换成单条可读标记而不是硬塞。用省略号
  * 作键：它落在 `SAVED_WORKFLOW_NAME_PATTERN` 之外，不可能与真实实参名相撞。
  */
-export const WORKFLOW_LAUNCH_ARGS_TRUNCATED_KEY = "…";
+export const WORKFLOW_LAUNCH_ARGS_TRUNCATED_KEY = "...";
 
 /**
  * 把启动轮元数据收进边界内。args 序列化后超 {@link WORKFLOW_LAUNCH_ARGS_MAX_BYTES} 即整体
- * 换成 `{ "…": "arguments omitted (N bytes)" }` 标记（见 {@link WORKFLOW_LAUNCH_ARGS_TRUNCATED_KEY}）；
+ * 换成 `{ "...": "arguments omitted (N bytes)" }` 标记（见 {@link WORKFLOW_LAUNCH_ARGS_TRUNCATED_KEY}）；
  * description 超 {@link WORKFLOW_LAUNCH_DESCRIPTION_MAX_CHARS} 即截断加省略号。铸造侧就地调用，
  * 让 message metadata 与 TurnStarted payload 拿到同一份有界值。
  */
@@ -428,7 +429,7 @@ export function boundWorkflowLaunchMeta(input: WorkflowLaunchMeta): WorkflowLaun
   if (input.description !== undefined) {
     bounded.description =
       input.description.length > WORKFLOW_LAUNCH_DESCRIPTION_MAX_CHARS
-        ? `${input.description.slice(0, WORKFLOW_LAUNCH_DESCRIPTION_MAX_CHARS - 1)}…`
+        ? `${input.description.slice(0, WORKFLOW_LAUNCH_DESCRIPTION_MAX_CHARS - 1)}...`
         : input.description;
   }
   // display 已在构造处（createCreateWorkflowDisplay + boundCausalityGraph）限长，原样透传。
@@ -701,6 +702,18 @@ export interface ModelSelectedPayload {
   contextWindow?: number | null;
 }
 
+export interface ModelGroupRoutedPayload {
+  groupId: string;
+  groupName: string;
+  groupRevision: number;
+  memberId: string;
+  attemptNumber: number;
+  maxAttempts: number;
+  actualSelection: ModelSelection;
+  reason?: "initial" | "turn_pin" | "failover" | "capacity";
+  transitionFromMemberId?: string;
+}
+
 export type ModelStreamingKind =
   | "start"
   | "text_start"
@@ -846,7 +859,7 @@ export interface ToolCallStartedPayload {
   display?: ToolResultDisplayPayload;
   /**
    * 这次调用**解析后**的副作用能力（工具元数据 + 按入参解析的运行时能力，例如 Bash 的只读命令判定）。
-   * 事件在 handler 动手之前发出，所以订阅者能在第一个字节落盘前知道「要写了」——dynamic-workflow 的
+   * 事件在 handler 动手之前发出，所以订阅者能在第一个字节落盘前知道「要写了」--dynamic-workflow 的
    * driver 据此关闭 amend-resume 的导入缓存（`isWorkspaceMutatingToolCall`）。可选：早于本字段的事件没有。
    */
   readOnly?: boolean;
@@ -942,7 +955,7 @@ export type BackgroundTaskCompletedPayload = BackgroundTaskPayloadBase & {
 };
 
 /**
- * 一条 workflow run 进度事件（父会话）。字段与 {@link DynamicWorkflowRunEvent} 同形——
+ * 一条 workflow run 进度事件（父会话）。字段与 {@link DynamicWorkflowRunEvent} 同形--
  * **一次序列化、两个消费者**：`listEvents` 的事件页与这里的会话事件用同一个有界载荷，
  * 读端因此不需要两套解释规则。`type` 已被会话事件信封占用，故引擎事件种类叫 `eventType`。
  */
@@ -956,7 +969,7 @@ export interface DynamicWorkflowRunProgressPayload {
   eventType: string;
   payload: Record<string, unknown>;
   truncated?: boolean;
-  /** 派生字段（toProgressPayload）：`actor-created` 上该子代理会话的 id（driver 铸的 `sess_dwf-…`）。 */
+  /** 派生字段（toProgressPayload）：`actor-created` 上该子代理会话的 id（driver 铸的 `sess_dwf-...`）。 */
   actorSessionId?: string;
   /**
    * 派生字段（与 `actorSessionId` 同类，见 toProgressPayload）：该 run 的 `run-launched.inputId`。

@@ -7,6 +7,7 @@ import { conversationRowTargetSchema, timestampSchema } from "./core.js";
 import { attachmentRefSchema } from "./attachment-ref.js";
 import { v4ConversationFileRewindPreviewResultSchema } from "./transport.js";
 import { modelSelectionSchema } from "../model-selection.js";
+import { executionTargetSchema } from "../model-group-types.js";
 import { modelExecutionSchema } from "../model-execution.js";
 import { submissionModeSchema } from "./submission.js";
 import { zcodeAutomationBotDeliveryTargetSchema } from "../bots.js";
@@ -30,6 +31,7 @@ export type { SharedContextRef } from "./shared-context-ref.js";
 
 const createSessionRequestedConfigSchema = z.object({
   modelSelection: modelSelectionSchema.optional(),
+  executionTarget: executionTargetSchema.optional(),
   provider: z.string().optional(),
   model: z.string().optional(),
   thought: z.string().optional(),
@@ -53,6 +55,7 @@ export const commandPayloadSchemas = {
         text: z.string(),
         attachments: z.array(attachmentRefSchema).optional(),
         modelSelection: modelSelectionSchema.optional(),
+        executionTarget: executionTargetSchema.optional(),
         mode: submissionModeSchema.optional(),
         planEnabled: z.boolean().optional(),
       })
@@ -101,6 +104,7 @@ export const commandPayloadSchemas = {
       // 迁移期允许旧发送端缺省；CLI admission 会把当前 Session Selection 固定进
       // canonical intent。Renderer 切换完成后，第一方用户提交始终显式携带这两项。
       modelSelection: modelSelectionSchema.optional(),
+      executionTarget: executionTargetSchema.optional(),
       mode: submissionModeSchema.optional(),
       planEnabled: z.boolean().optional(),
       // 本次执行仍使用上面的标准 Selection；这里只携带不持久化语义、动态鉴权和 child 策略。
@@ -141,6 +145,7 @@ export const commandPayloadSchemas = {
     text: z.string(),
     displayText: z.string().optional(),
     modelSelection: modelSelectionSchema.optional(),
+    executionTarget: executionTargetSchema.optional(),
     mode: submissionModeSchema.optional(),
     planEnabled: z.boolean().optional(),
     heldQueueDisposition: z.enum(["clearQueueAndSend", "keepQueueAndSend"]).optional(),
@@ -213,9 +218,10 @@ export const commandPayloadSchemas = {
     interactionId: z.string(),
   }),
   switchModelConfig: z.object({
-    provider: z.string(),
-    model: z.string(),
-    thought: z.string(),
+    provider: z.string().optional(),
+    model: z.string().optional(),
+    thought: z.string().optional(),
+    executionTarget: executionTargetSchema.optional(),
   }),
   // additive（冻结面按黄金测试背书演进）：agent 协作模式切换。
   // 值域 = core CollaborationMode 的可切换子集（auto 非用户可切，不进 UI 命令面）。

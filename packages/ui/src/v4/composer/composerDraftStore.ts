@@ -10,6 +10,7 @@
 // 与「v4 composer 不做附件草稿持久化」的裁决一致）。
 import { logger } from "@/logger.js";
 import { modelSelectionSchema, type ModelSelection } from "@zcode/shared";
+import { executionTargetSchema, type ExecutionTarget } from "@zcode/shared/model-group-types";
 import { submissionModeSchema, type SubmissionMode } from "@zcode/shared/zcode-protocol-v4";
 import type { ComposerMentionPrefill } from "@/store/zcodeSessionStoreTypes.js";
 
@@ -24,6 +25,7 @@ export interface V4ComposerDraft {
   lastPlanTransitionId?: string;
   lastPermissionGrantId?: string;
   modelSelection?: ModelSelection;
+  executionTarget?: ExecutionTarget;
   /** 会话级系统提示词覆盖；随草稿持久化，重载后由提交前屏障重新下发。 */
   systemPrompt?: string;
   /** 首次分享导入等待公共新任务初始化；不能由空 Session snapshot 抢先填充。 */
@@ -135,6 +137,11 @@ function readDraft(value: unknown): V4ComposerDraft | null {
       ? { lastPlanTransitionId: value.lastPlanTransitionId }
       : {}),
     ...(modelSelection ? { modelSelection } : {}),
+    ...(isRecord(value.executionTarget) && executionTargetSchema.safeParse(value.executionTarget).success
+      ? { executionTarget: executionTargetSchema.parse(value.executionTarget) }
+      : modelSelection
+        ? { executionTarget: { kind: "model" as const, selection: modelSelection } }
+        : {}),
     ...(typeof value.systemPrompt === "string" && value.systemPrompt.trim()
       ? { systemPrompt: value.systemPrompt }
       : {}),

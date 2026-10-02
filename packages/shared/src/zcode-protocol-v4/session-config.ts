@@ -1,10 +1,13 @@
 import { z } from "zod";
 import { modelSelectionSchema } from "../model-selection.js";
+import { executionTargetSchema } from "../model-group-types.js";
 
 // ── config──
 export const sessionConfigStateSchema = z.object({
   /** Session 接受并持久化的稀疏选择意图；provider/model/thought 仅为 UI effective 投影。 */
   modelSelection: modelSelectionSchema.optional(),
+  /** Session 接受并持久化的结构化执行目标（直接模型或模型组）。 */
+  executionTarget: executionTargetSchema.optional(),
   provider: z.string(),
   model: z.string(),
   thought: z.string(),

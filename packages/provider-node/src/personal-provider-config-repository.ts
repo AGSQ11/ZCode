@@ -79,6 +79,8 @@ export class NodePersonalProviderConfigRepository implements PersonalProviderCon
           models: next.models,
           providerOrder: next.providerOrder,
           defaultModelSelection: next.defaultModelSelection,
+          defaultTarget: next.defaultTarget,
+          modelGroups: next.modelGroups,
         });
         const committed = await this.#writeLocked(update);
         const snapshot = snapshotFromUpdate(committed);
@@ -142,7 +144,7 @@ export class NodePersonalProviderConfigRepository implements PersonalProviderCon
 
   async #writeLocked(update: ProviderConfigLayerUpdate): Promise<ProviderConfigLayerUpdate> {
     // 同一入口写入规则与默认选择；先严格验证整份结果，不能落盘后才发现来源越权/坏值。
-    // 使用与读取相同的规范形态再计算版本，避免外层规则键顺序使“写成功”的版本读回就变化。
+    // 使用与读取相同的规范形态再计算版本，避免外层规则键顺序使"写成功"的版本读回就变化。
     const canonical = decodeProviderConfigFile(encodeProviderConfigFile(update));
     const encoded = encodeProviderConfigFile(canonical);
     await atomicWritePrivateTextFile(this.#filePath, JSON.stringify(encoded, null, 2));
@@ -268,5 +270,7 @@ function snapshotFromUpdate(update: ProviderConfigLayerUpdate): ProviderConfigLa
     // 快照必须与 revision 对应的磁盘内容一致；补空数组会让未声明排序的文件在 CAS 时误报变化。
     providerOrder: update.providerOrder,
     defaultModelSelection: update.defaultModelSelection,
+    defaultTarget: update.defaultTarget,
+    modelGroups: update.modelGroups,
   });
 }

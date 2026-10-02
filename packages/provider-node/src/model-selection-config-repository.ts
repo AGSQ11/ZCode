@@ -1,4 +1,5 @@
 import type { ModelSelection, PersonalProviderConfigRepository } from "@zcode/provider";
+import type { ExecutionTarget, ModelGroupsConfig } from "@zcode/shared/model-group-types";
 
 export interface NodeModelSelectionConfigRepositoryOptions {
   readonly personalRepository: PersonalProviderConfigRepository;
@@ -16,7 +17,25 @@ export class NodeModelSelectionConfigRepository {
 
   async read(): Promise<ModelSelection | undefined> {
     this.#assertNotDisposed();
-    return (await this.#personal.read()).defaultModelSelection;
+    const snapshot = await this.#personal.read();
+    if (snapshot.defaultModelSelection) return snapshot.defaultModelSelection;
+    if (snapshot.defaultTarget?.kind === "model") return snapshot.defaultTarget.selection;
+    return undefined;
+  }
+
+  async readDefaultTarget(): Promise<ExecutionTarget | undefined> {
+    this.#assertNotDisposed();
+    const snapshot = await this.#personal.read();
+    if (snapshot.defaultTarget) return snapshot.defaultTarget;
+    if (snapshot.defaultModelSelection) {
+      return { kind: "model", selection: snapshot.defaultModelSelection };
+    }
+    return undefined;
+  }
+
+  async readModelGroupsConfig(): Promise<ModelGroupsConfig | undefined> {
+    this.#assertNotDisposed();
+    return (await this.#personal.read()).modelGroups;
   }
 
   async saveConfiguredDefault(
@@ -26,8 +45,21 @@ export class NodeModelSelectionConfigRepository {
     const snapshot = await this.#personal.update((current) => ({
       ...current,
       defaultModelSelection: selection,
+      defaultTarget: selection ? { kind: "model", selection } : undefined,
     }));
     return snapshot.defaultModelSelection;
+  }
+
+  async saveConfiguredDefaultTarget(
+    target: ExecutionTarget | undefined,
+  ): Promise<ExecutionTarget | undefined> {
+    this.#assertNotDisposed();
+    const snapshot = await this.#personal.update((current) => ({
+      ...current,
+      defaultTarget: target,
+      defaultModelSelection: target?.kind === "model" ? target.selection : current.defaultModelSelection,
+    }));
+    return snapshot.defaultTarget;
   }
 
   onDidChange(listener: (reason: string) => void): () => void {

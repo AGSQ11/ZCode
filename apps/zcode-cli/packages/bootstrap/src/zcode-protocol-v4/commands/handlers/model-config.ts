@@ -80,6 +80,17 @@ async function switchModelConfig(
   const payload = envelope.payload as CommandPayloadMap["switchModelConfig"];
   const record = requireRecord(host, envelope.sessionId);
   return runSessionModelConfigMutation(record.app, async () => {
+    if (payload.executionTarget) {
+      record.app.runtime.setSessionExecutionTarget(payload.executionTarget);
+      if (payload.executionTarget.kind === "group") {
+        return undefined;
+      }
+    }
+
+    if (!payload.provider || !payload.model) {
+      return undefined;
+    }
+
     // previous 必须在串行化临界区内、setModel 之前快照。registry fallback 可能排在本命令
     // 前面，若在排队前读取会拿到过期 previous，并让 noop/事件顺序与 runtime 真值分裂。
     const previousSelection = record.app.runtime.getSessionModelSelection();
@@ -94,13 +105,13 @@ async function switchModelConfig(
     const modelIdentityChanged =
       previousSelection?.providerId !== payload.provider ||
       previousSelection?.modelId !== payload.model;
-    const requestedThought = payload.thought.trim();
+    const requestedThought = (payload.thought ?? "").trim();
     const thoughtChanged =
       Boolean(requestedThought) && requestedThought !== previousSelection?.options?.reasoningLevel;
     // 同值切换收口：命中 runtime 当前值 → noop ACK（config.unchanged），
     // 不得以 accepted 静默吞掉--种子对齐后「UI 显示值 = runtime 真值」成立，
     // 客户端据此区分「已生效」与「本来就是这个值」。
-    if (!modelIdentityChanged && !thoughtChanged) {
+    if (!modelIdentityChanged && !thoughtChanged && !payload.executionTarget) {
       throw new V4CommandNoopError(CONFIG_UNCHANGED);
     }
     // setModel 前由当前 Environment Registry 确认目标 Provider 可用。
@@ -184,6 +195,9 @@ export async function applyRequestedSessionConfig(
   record: V4SessionRecordView,
   config: NonNullable<CommandPayloadMap["createSession"]["config"]>,
 ): Promise<void> {
+  if (config.executionTarget) {
+    record.app.runtime.setSessionExecutionTarget(config.executionTarget);
+  }
   await runSessionModelConfigMutation(record.app, async () => {
     const previousSelection = record.app.runtime.getSessionModelSelection();
     const previousModelSelection =

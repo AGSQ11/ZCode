@@ -115,6 +115,20 @@ export function setSessionModelSelection(
   this.sessionModelSelection = selection && cloneModelSelection(selection);
 }
 
+export function getSessionExecutionTarget(this: AgentRuntimeInternal): import("@zcode/shared/model-group-types").ExecutionTarget | undefined {
+  return this.sessionExecutionTarget;
+}
+
+export function setSessionExecutionTarget(
+  this: AgentRuntimeInternal,
+  target: import("@zcode/shared/model-group-types").ExecutionTarget | undefined,
+): void {
+  this.sessionExecutionTarget = target;
+  if (target?.kind === "model") {
+    this.sessionModelSelection = cloneModelSelection(target.selection);
+  }
+}
+
 export function getProjectId(this: AgentRuntimeInternal): ProjectId {
   // Bash cd 会改变执行 cwd，但 project identity 不能随工具内 cwd 漂移。
   return projectIdFromDirectory(this.workspaceRoot);

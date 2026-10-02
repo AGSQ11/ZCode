@@ -241,6 +241,7 @@ export async function runGenerateText(input: {
           attempt,
           maxAttempts: input.retry.maxAttempts,
           retryCount: emptyCompletionRetryCount,
+          singlePhysicalAttempt: input.retryBudget === "single_physical_attempt",
         })
       ) {
         const completedAt = Date.now();

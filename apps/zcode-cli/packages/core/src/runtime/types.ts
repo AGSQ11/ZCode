@@ -1,4 +1,6 @@
 import type { RuntimeInputPresentation } from "@zcode/contracts";
+import type { ExecutionTarget, ModelGroupsConfig } from "@zcode/shared/model-group-types";
+import type { ModelGroupRouter } from "./model-group-router.js";
 /* eslint-disable max-lines -- Runtime 类型集中承载 core/runtime 对外结构，拆分需要单独迁移。 */
 import { PermissionService, ToolScheduler } from "./deps.js";
 import type {
@@ -199,6 +201,8 @@ export interface AgentRuntimeConfig {
   memory?: MemoryRuntimeConfig;
   /** 历史恢复允许未绑定；只有完整选择才能创建本轮执行 Model。 */
   modelSelection?: ModelSelection;
+  /** 执行目标（直接模型或模型组）。 */
+  executionTarget?: ExecutionTarget;
   titleGeneration?: {
     enabled?: boolean;
     modelSelection?: ModelSelection;
@@ -365,6 +369,7 @@ export interface AgentRuntimeDeps {
   dynamicWorkflowSnippetPort?: DynamicWorkflowSnippetPort;
   /** 模型目录端口；缺席则 ListModels 报能力缺席，CreateWorkflow 的 subagent_model 被拒。 */
   modelCatalogPort?: ModelCatalogPort;
+  modelGroupRouter?: ModelGroupRouter;
   runtimeTaskRegistry?: RuntimeTaskRegistry;
   artifactStore?: ToolArtifactStorePort;
   automationPort?: AutomationPort;

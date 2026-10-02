@@ -178,6 +178,9 @@ export class AgentRuntime {
   private subagentPort?: SubagentPort;
   private dynamicWorkflowRunPort?: DynamicWorkflowRunPort;
   private modelCatalogPort?: ModelCatalogPort;
+  private modelGroupRouter?: import("./model-group-router.js").ModelGroupRouter;
+  private sessionExecutionTarget?: import("@zcode/shared/model-group-types").ExecutionTarget;
+  private turnPinnedMemberId?: string;
   private runtimeTaskRegistry: RuntimeTaskRegistry;
   private branchGeneration = 0;
   private artifactStore?: ToolArtifactStorePort;
@@ -276,6 +279,8 @@ export class AgentRuntime {
     this.providerRuntimeHeadersPort = deps.providerRuntimeHeadersPort;
     this.browserControlPort = deps.browserControlPort;
     this.modelRequestAdmission = deps.modelRequestAdmission;
+    this.modelGroupRouter = deps.modelGroupRouter;
+    this.sessionExecutionTarget = config.executionTarget;
     // 旧会话的选择缺失不能阻断历史恢复；不在这里制造默认模型。
     this.sessionModelSelection =
       config.modelSelection && cloneModelSelection(config.modelSelection);
@@ -361,6 +366,8 @@ export interface AgentRuntime {
   ): Promise<void>;
   getSessionModelSelection(): ModelSelection | undefined;
   setSessionModelSelection(selection: ModelSelection | undefined): void;
+  getSessionExecutionTarget(): import("@zcode/shared/model-group-types").ExecutionTarget | undefined;
+  setSessionExecutionTarget(target: import("@zcode/shared/model-group-types").ExecutionTarget | undefined): void;
   getProjectId(): ProjectId;
   ensureSessionPersistedForExternalActivity(
     input: string,
@@ -483,6 +490,10 @@ export interface AgentRuntime {
     origin?: ModelSelectionOrigin;
     supportedThoughtLevels?: readonly string[];
     traceContext?: TraceContext;
+  }): Promise<void>;
+  emitModelGroupRouted(options: {
+    payload: import("@zcode/contracts").ModelGroupRoutedPayload;
+    traceContext: TraceContext;
   }): Promise<void>;
   /** v4 switchCollaborationMode：协作模式切换后补发 SessionModeChanged（config.mode 投影）。 */
   emitModeChanged(options: {
