@@ -35,16 +35,23 @@ export function createModelGroupsService(
   configService: ProviderConfigService,
   ensureReady: () => Promise<void> = async () => {},
 ): IModelGroupsService {
+  // 通知串行化（P1）：config-change 事件各自并发发起读取时，旧读可能晚于新读
+  // 解析并发布过期快照，订阅方停留在陈旧状态。链式追加保证通知按发起顺序投递。
+  let notifyChain: Promise<void> = Promise.resolve();
+  const notify = (listener: (config: ModelGroupsConfig) => void): void => {
+    notifyChain = notifyChain
+      .then(async () => {
+        const config = await configService.getModelGroupsConfig();
+        listener(config);
+      })
+      .catch(() => {
+        // 瞬时读取失败不阻断后续通知
+      });
+  };
+
   return {
     onDidChange: toEvent((listener) =>
-      configService.onDidChange(async () => {
-        try {
-          const config = await configService.getModelGroupsConfig();
-          listener(config);
-        } catch {
-          // Ignore transient read errors during notifications
-        }
-      }),
+      configService.onDidChange(() => notify(listener)),
     ),
     getConfig: async () => {
       await ensureReady();

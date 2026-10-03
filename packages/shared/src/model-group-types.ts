@@ -117,6 +117,21 @@ export const modelGroupSchema = z
   })
   .strict()
   .superRefine((group, ctx) => {
+    // Unique member IDs within the group: member IDs are the generated identifiers
+    // addressing members, so duplicates make updates/removals/routing state ambiguous.
+    const memberIds = new Set<string>();
+    for (let i = 0; i < group.members.length; i++) {
+      const m = group.members[i];
+      if (!m) continue;
+      if (memberIds.has(m.id)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: `Duplicate member id: ${m.id}`,
+          path: ["members", i, "id"],
+        });
+      }
+      memberIds.add(m.id);
+    }
     // An enabled group must contain at least one enabled member
     if (group.enabled) {
       const hasEnabledMember = group.members.some((m) => m.enabled);
@@ -166,6 +181,21 @@ export const modelGroupsConfigSchema = z
   })
   .strict()
   .superRefine((cfg, ctx) => {
+    // Unique group IDs: reference resolution must be unambiguous - duplicate IDs would
+    // make defaultTarget (find-first) disagree with workload-defaults (Map keeps last).
+    const idMap = new Set<string>();
+    for (let i = 0; i < cfg.groups.length; i++) {
+      const g = cfg.groups[i];
+      if (!g) continue;
+      if (idMap.has(g.id)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: `Duplicate group id: ${g.id}`,
+          path: ["groups", i, "id"],
+        });
+      }
+      idMap.add(g.id);
+    }
     // Unique group names (case-insensitive after NFC normalization)
     const nameMap = new Map<string, string>();
     for (let i = 0; i < cfg.groups.length; i++) {

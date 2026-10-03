@@ -127,8 +127,12 @@ export function setSessionExecutionTarget(
   this.sessionExecutionTarget = target;
   if (target?.kind === "model") {
     this.sessionModelSelection = cloneModelSelection(target.selection);
+  } else if (target?.kind === "group") {
+    // 切换到组时清除陈旧具体选择：仍读 sessionModelSelection 的兼容路径不能
+    // 继续用上一个模型路由组请求（P1 权威收敛）。
+    this.sessionModelSelection = undefined;
   }
-  // P1-1（spec §6）：执行目标变化后旧 turn pin 立即失效——pin 只在同一目标、
+  // P1-1（spec §6）：执行目标变化后旧 turn pin 立即失效--pin 只在同一目标、
   // 同一用户 turn 内有意义；目标不变时保留 pin（turn 中途的同目标刷新不打断亲和）。
   if (!sameExecutionTarget(previous, target)) {
     this.turnPinnedMemberId = undefined;

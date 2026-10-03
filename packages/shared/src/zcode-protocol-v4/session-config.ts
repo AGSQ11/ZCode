@@ -28,6 +28,22 @@ export const sessionConfigStateSchema = z.object({
       planEnabled: z.boolean(),
     })
     .optional(),
+})
+.superRefine((state, ctx) => {
+  // executionTarget 与 modelSelection 同为可选独立字段，但必须互相一致：
+  // 若二者同现，modelTarget.selection 必须等于 modelSelection，否则旧字段会
+  // 以过期具体模型压过组/目标意图（P1 悬空一致性）。
+  if (state.executionTarget?.kind === "model" && state.modelSelection) {
+    const sel = state.executionTarget.selection;
+    const ms = state.modelSelection;
+    if (sel.providerId !== ms.providerId || sel.modelId !== ms.modelId) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "executionTarget selection must match modelSelection when both are present",
+        path: ["executionTarget"],
+      });
+    }
+  }
 });
 export type SessionConfigState = z.infer<typeof sessionConfigStateSchema>;
 

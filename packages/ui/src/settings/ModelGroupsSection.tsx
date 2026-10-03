@@ -126,12 +126,14 @@ export function ModelGroupsSection() {
   }, []);
 
   const handleCreateGroup = () => {
+    // 默认值先展开、身份字段后赋值：若 DEFAULT_MODEL_GROUP 未来新增 id/name/revision/members
+    // 叶子，反向顺序会让默认值静默覆盖新建组身份（复制出重复 id）。
     const newGroup: ModelGroup = {
+      ...DEFAULT_MODEL_GROUP,
       id: crypto.randomUUID(),
       revision: 1,
       name: `Group ${config.groups.length + 1}`,
       members: [],
-      ...DEFAULT_MODEL_GROUP,
     };
     setEditingGroupId(newGroup.id);
     setEditingGroupDraft(newGroup);

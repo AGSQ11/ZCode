@@ -195,10 +195,13 @@ export async function applyRequestedSessionConfig(
   record: V4SessionRecordView,
   config: NonNullable<CommandPayloadMap["createSession"]["config"]>,
 ): Promise<void> {
-  if (config.executionTarget) {
-    record.app.runtime.setSessionExecutionTarget(config.executionTarget);
-  }
   await runSessionModelConfigMutation(record.app, async () => {
+    // 执行目标写入必须落在串行化临界区内：提前到 mutation 外设置会让目标在
+    // 排队 mutation 未完成时已可见，且后续 model-config 失败留下目标已改、
+    // 模型状态未配的不一致（P1 串行化边界）。
+    if (config.executionTarget) {
+      record.app.runtime.setSessionExecutionTarget(config.executionTarget);
+    }
     const previousSelection = record.app.runtime.getSessionModelSelection();
     const previousModelSelection =
       previousSelection &&

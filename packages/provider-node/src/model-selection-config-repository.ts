@@ -57,7 +57,15 @@ export class NodeModelSelectionConfigRepository {
     const snapshot = await this.#personal.update((current) => ({
       ...current,
       defaultTarget: target,
-      defaultModelSelection: target?.kind === "model" ? target.selection : current.defaultModelSelection,
+      // 清除默认目标时必须同步清除 legacy 选择：readDefaultTarget() 在
+      // defaultTarget 缺失时回退 defaultModelSelection，保留旧值会让被清除的
+      // 默认选择复活并继续路由到旧模型（P1 悬空状态）。
+      defaultModelSelection:
+        target === undefined
+          ? undefined
+          : target.kind === "model"
+            ? target.selection
+            : current.defaultModelSelection,
     }));
     return snapshot.defaultTarget;
   }

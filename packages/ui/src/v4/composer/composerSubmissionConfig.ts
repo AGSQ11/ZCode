@@ -32,7 +32,9 @@ export function createComposerSubmissionConfig(
     return Object.freeze({
       mode: mode.data === "plan" ? "build" : mode.data,
       planEnabled: resolveExecutionState(composer).planEnabled,
-      executionTarget: target,
+      // 组目标必须克隆后冻结：await 期间 composer 侧的可变引用被复用时，
+      // 浅冻结会让提交配置随草稿漂移（悬空意图）。
+      executionTarget: Object.freeze({ kind: "group" as const, groupId: target.groupId }),
     });
   }
 

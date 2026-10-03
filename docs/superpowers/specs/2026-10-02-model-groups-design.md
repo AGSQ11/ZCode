@@ -104,7 +104,9 @@ Acquire Lease (atomic inFlight reservation) & Provider Admission
        ▼
 Dispatch physical adapter attempt (Single Physical Attempt Policy)
        │
-       ├─ Success ──► Close circuit, increment 24h bucket, release lease, return result
+       ├─ markDispatched() on physical execution ──► increment 24h bucket (all attempts, incl. failed)
+       │
+       ├─ Success ──► Close circuit, release lease, return result
        │
        ▼ Failure (Pre-commit stream / Provider Error)
 Classify failure:

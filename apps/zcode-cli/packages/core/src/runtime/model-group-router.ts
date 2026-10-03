@@ -20,6 +20,18 @@ export interface CandidateRejection {
   readonly reason: string;
 }
 
+/** 预留临界段复核失败：资格检查后状态已变，成员在并发下不再可租。 */
+export class ModelGroupRoutingError extends Error {
+  readonly reason: string;
+  readonly memberId: string;
+  constructor(reason: string, message: string, memberId: string) {
+    super(message);
+    this.name = "ModelGroupRoutingError";
+    this.reason = reason;
+    this.memberId = memberId;
+  }
+}
+
 export interface ReservationLease {
   readonly leaseId: string;
   readonly authorityScope: string;
@@ -217,6 +229,36 @@ export class ModelGroupRouter {
     const modelId = member.selection.modelId;
     const metrics = this.getEndpointMetrics(connectionId, modelId);
 
+    // 关键段复核（P0 原子性）：资格检查与取租之间允许并发调用交错，
+    // 两个调用方可能同时通过同一成员的检查（含 half-open 端点与 maxInFlight-1 的
+    // 容量边界）。在自增前按当前状态重新裁决，越界即拒绝，保证
+    // maxInFlight 与 half-open 单探针语义在并发下仍成立。
+    if (metrics.cooldownUntil !== null) {
+      if (now < metrics.cooldownUntil) {
+        throw new ModelGroupRoutingError(
+          "circuit_cooling_down",
+          "Endpoint is cooling down at reservation time",
+          member.id,
+        );
+      }
+      if (metrics.isHalfOpen) {
+        throw new ModelGroupRoutingError(
+          "circuit_half_open_in_flight",
+          "Half-open probe already in flight for this endpoint",
+          member.id,
+        );
+      }
+    }
+    const memberCapKey = makeMemberCapacityKey(this.#authorityScope, group.id, member.id);
+    const currentMemberInFlight = this.#memberInFlight.get(memberCapKey) ?? 0;
+    if (member.maxInFlight !== null && currentMemberInFlight >= member.maxInFlight) {
+      throw new ModelGroupRoutingError(
+        "member_max_in_flight_exceeded",
+        "Member capacity exhausted between eligibility check and reservation",
+        member.id,
+      );
+    }
+
     metrics.inFlight++;
 
     const isHalfOpen = metrics.cooldownUntil !== null && now >= metrics.cooldownUntil;
@@ -224,7 +266,6 @@ export class ModelGroupRouter {
       metrics.isHalfOpen = true;
     }
 
-    const memberCapKey = makeMemberCapacityKey(this.#authorityScope, group.id, member.id);
     const curCap = this.#memberInFlight.get(memberCapKey) ?? 0;
     this.#memberInFlight.set(memberCapKey, curCap + 1);
 
@@ -318,7 +359,21 @@ export class ModelGroupRouter {
       };
     }
 
-    const reservation = this.#acquireLease(group, member, eligibility.candidate.connectionId, now);
+    let reservation: ReservationLease;
+    try {
+      reservation = this.#acquireLease(group, member, eligibility.candidate.connectionId, now);
+    } catch (error) {
+      // 并发临界段复核失败：pin 目标在检查后被其他调用占用，按容量拒绝而非穿透。
+      if (error instanceof ModelGroupRoutingError) {
+        return {
+          rejections: [{ memberId: member.id, reason: error.reason }],
+          allCoolingDown:
+            error.reason === "circuit_cooling_down" || error.reason === "circuit_half_open_in_flight",
+          allBusy: error.reason === "member_max_in_flight_exceeded",
+        };
+      }
+      throw error;
+    }
 
     return {
       routedAttempt: {
@@ -387,14 +442,30 @@ export class ModelGroupRouter {
     }
 
     const currentCursor = this.getGroupCursor(group.id);
-    const ranked = rankCandidates(eligibleCandidates, group.strategy, currentCursor);
+    const ranked = rankCandidates(eligibleCandidates, group.strategy, currentCursor, group.members.length);
     const best = ranked[0];
     if (!best) {
       return { rejections, allCoolingDown: false, allBusy: false };
     }
 
     const chosenMember = best.member;
-    const reservation = this.#acquireLease(group, chosenMember, best.connectionId, now);
+    let reservation: ReservationLease;
+    try {
+      reservation = this.#acquireLease(group, chosenMember, best.connectionId, now);
+    } catch (error) {
+      // 并发临界段复核失败：该成员在检查后被占用，游标不推进、按容量拒绝，
+      // 由调用方用已排除该成员的重选逻辑重试（spec §9 候选-访问集合语义）。
+      if (error instanceof ModelGroupRoutingError) {
+        rejections.push({ memberId: chosenMember.id, reason: error.reason });
+        return {
+          rejections,
+          allCoolingDown:
+            error.reason === "circuit_cooling_down" || error.reason === "circuit_half_open_in_flight",
+          allBusy: error.reason === "member_max_in_flight_exceeded",
+        };
+      }
+      throw error;
+    }
 
     // Advance cursor to position after the chosen member -- 仅策略路径允许推进游标；
     // pin 路径走 reservePinnedMember，不写游标（P1-2）。

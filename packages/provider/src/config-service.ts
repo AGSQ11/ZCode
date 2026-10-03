@@ -707,7 +707,9 @@ export class ProviderConfigService implements ProviderSource<ProviderConfigSnaps
       return {
         ...current,
         modelGroups: validatedConfig,
-        defaultTarget: nextDefaultTarget ?? current.defaultTarget,
+        // 已删除组的默认目标必须同步清除：nextDefaultTarget 为 undefined 时
+        // 回退到 current.defaultTarget 会把刚删掉的组写回默认路由（P0 悬空引用）。
+        defaultTarget: nextDefaultTarget,
       };
     });
   }

@@ -217,12 +217,19 @@ export const commandPayloadSchemas = {
   snoozeInteractionAutoResolution: z.object({
     interactionId: z.string(),
   }),
-  switchModelConfig: z.object({
-    provider: z.string().optional(),
-    model: z.string().optional(),
-    thought: z.string().optional(),
-    executionTarget: executionTargetSchema.optional(),
-  }),
+  switchModelConfig: z
+    .object({
+      provider: z.string().optional(),
+      model: z.string().optional(),
+      thought: z.string().optional(),
+      executionTarget: executionTargetSchema.optional(),
+    })
+    .refine(
+      (payload) => Boolean(payload.executionTarget) || (Boolean(payload.provider) && Boolean(payload.model)),
+      {
+        message: "switchModelConfig requires a concrete provider/model pair or an executionTarget",
+      },
+    ),
   // additive（冻结面按黄金测试背书演进）：agent 协作模式切换。
   // 值域 = core CollaborationMode 的可切换子集（auto 非用户可切，不进 UI 命令面）。
   switchCollaborationMode: z.object({

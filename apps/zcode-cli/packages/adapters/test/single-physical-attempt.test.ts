@@ -64,6 +64,64 @@ test("G15 & G16: Single physical attempt adapter policy disables all retry loops
   );
 });
 
+test("Spec §9: single_physical_attempt dispatches the physical request exactly once", async () => {
+  // LOW 评审补齐：不只是断言预算谓词返回 false，而是让真实 runner-stream 以
+  // 失败 stub 驱动 attempt 循环，按 stub 侧计数验证物理派发恰好一次。
+  const { runStreamText } = await import("../src/model/runner-stream.js");
+
+  let dispatchCount = 0;
+  const failingStream = () => {
+    dispatchCount += 1;
+    return {
+      fullStream: (async function* () {
+        yield { type: "error", error: new Error("boom") } as never;
+      })(),
+    } as never;
+  };
+
+  const resolved = {
+    providerId: "test-provider",
+    modelId: "test-model",
+    providerKind: "openai-compatible",
+    baseURL: "https://provider.example/v1",
+    headers: {},
+    properties: { contextWindow: 128_000, maxOutputTokens: 8_192 },
+  } as never;
+
+  const input = {
+    env: {},
+    request: {
+      messages: [],
+      modelRetryBudget: ModelRetryBudget.SinglePhysicalAttempt,
+      traceContext: undefined,
+    } as never,
+    resolveModel: () => resolved,
+    resolved,
+    retry: {
+      maxAttempts: 10,
+      baseDelayMs: 1,
+      backoffFactor: 2,
+      maxDelayMs: 2,
+      jitter: false,
+    } as never,
+    runtime: { streamText: failingStream, generateText: failingStream } as never,
+    streamIdleTimeoutMs: 1_000,
+    modelIoFullRetentionEnabled: false,
+  } as never;
+
+  let thrown: unknown;
+  try {
+    for await (const _event of runStreamText(input)) {
+      // 不应产出任何事件；异常路径直接抛出。
+      void _event;
+    }
+  } catch (error) {
+    thrown = error;
+  }
+  assert.ok(thrown instanceof Error, "expected the attempt to fail");
+  assert.equal(dispatchCount, 1, "single physical attempt must dispatch exactly once");
+});
+
 test("Spec §10: 429-shaped adapter error exposes retryAfterMs on thrown error context", () => {
   // 与生产同一条链路：AI SDK APICallError（429 + Retry-After 头）→ classifyModelFailure
   // → toAdapterError；断言离开 adapter 的错误上下文保留 provider 指示的等待时长。

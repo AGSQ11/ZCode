@@ -137,10 +137,13 @@ export function rankCandidates(
   candidates: readonly MemberCandidate[],
   strategy: RoutingStrategy,
   cursorIndex: number,
+  totalMemberCount?: number,
 ): readonly MemberCandidate[] {
   if (candidates.length <= 1) return candidates;
 
-  const totalMembers = Math.max(...candidates.map((c) => c.index)) + 1;
+  // 环形序号必须覆盖全组成员顺序（含不合格尾部成员）：只按合格候选推导
+  // 环长会让游标距离失真，尾部成员不合格时 round_robin/平局次序与真实组顺序背离（P1）。
+  const totalMembers = totalMemberCount ?? Math.max(...candidates.map((c) => c.index)) + 1;
   const cursorDistance = (idx: number) => (idx - cursorIndex + totalMembers) % totalMembers;
 
   switch (strategy) {

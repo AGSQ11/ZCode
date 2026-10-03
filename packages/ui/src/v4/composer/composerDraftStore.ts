@@ -136,12 +136,22 @@ function readDraft(value: unknown): V4ComposerDraft | null {
     ...(typeof value.lastPlanTransitionId === "string"
       ? { lastPlanTransitionId: value.lastPlanTransitionId }
       : {}),
-    ...(modelSelection ? { modelSelection } : {}),
-    ...(isRecord(value.executionTarget) && executionTargetSchema.safeParse(value.executionTarget).success
-      ? { executionTarget: executionTargetSchema.parse(value.executionTarget) }
-      : modelSelection
-        ? { executionTarget: { kind: "model" as const, selection: modelSelection } }
-        : {}),
+    // executionTarget 为权威执行目标：组目标存在时丢弃陈旧 modelSelection，
+    // 防止仍读旧字段的消费者把请求路由回过期具体模型（P1 权威收敛）。
+    ...(() => {
+      if (isRecord(value.executionTarget)) {
+        const parsed = executionTargetSchema.safeParse(value.executionTarget);
+        if (parsed.success && parsed.data.kind === "group") {
+          return { executionTarget: parsed.data };
+        }
+        if (parsed.success) {
+          return { executionTarget: parsed.data, ...(modelSelection ? { modelSelection } : {}) };
+        }
+      }
+      return modelSelection
+        ? { modelSelection, executionTarget: { kind: "model" as const, selection: modelSelection } }
+        : {};
+    })(),
     ...(typeof value.systemPrompt === "string" && value.systemPrompt.trim()
       ? { systemPrompt: value.systemPrompt }
       : {}),
