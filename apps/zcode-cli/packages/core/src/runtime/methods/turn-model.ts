@@ -155,6 +155,8 @@ export interface GroupTurnRoutingState {
   activeMemberId?: string;
   /** 首个尝试使用的 requestDependencies；failover 重选成员时沿用同一份。 */
   requestDependencies?: import("@zcode/contracts").ModelRequestDependencies;
+  /** 逻辑请求起点冻结的组快照；failover 重选必须用它，不能重新解析实时配置。 */
+  frozenGroup?: ModelGroup;
   /**
    * 逻辑请求起点的组 failover.enabled 快照。failover 资格判定必须用请求起点的
    * 冻结事实；turn 中途改配置只影响下一条被 admission 的 turn（spec §6）。
@@ -186,6 +188,8 @@ export async function prepareRoutedAttempt(
     requestDependencies?: import("@zcode/contracts").ModelRequestDependencies;
     excludedMemberIds?: ReadonlySet<string>;
     deadlineAt?: number;
+    /** 调用方持有的逻辑请求起点冻结组快照；failover 重选时传入，跳过实时配置解析。 */
+    frozenGroup?: ModelGroup;
     signal?: AbortSignal;
   },
 ): Promise<PreparedRoutedAttempt> {
@@ -210,8 +214,12 @@ export async function prepareRoutedAttempt(
     throw new Error("ModelGroupRouter is not available in runtime");
   }
 
-  const groupsConfig = await resolveModelGroupsConfig(runtime);
-  const group = groupsConfig?.groups.find((g: ModelGroup) => g.id === target.groupId);
+  // failover 重选必须用调用方冻结的请求起点组快照；实时解析会让组在
+  // attempt 之间换 revision/成员集，违背「组事实在逻辑请求起点冻结」的不变量
+  // （中途删除组会被误判成普通失败而不是结构化终止）。
+  const group =
+    options.frozenGroup ??
+    (await resolveModelGroupsConfig(runtime))?.groups.find((g: ModelGroup) => g.id === target.groupId);
   if (!group) {
     throw new Error(`Model group not found: ${target.groupId}`);
   }
@@ -223,14 +231,15 @@ export async function prepareRoutedAttempt(
   const excluded = options.excludedMemberIds ?? new Set<string>();
 
   // deadline 在路由开始处启动（spec §9：requestDeadlineMs 覆盖候选准备、准入、
-  // 网络尝试与恢复）。调用方在 failover 重选时传入共享 deadline；首次路由则由
-  // 这里按组的 requestDeadlineMs 现场计算并随结果返回。
-  const deadlineAt =
-    options.deadlineAt ?? computeRequestDeadlineMs(Date.now(), group.failover.requestDeadlineMs);
+  // 网络尝试与恢复）。仅当组启用 failover 时存在逻辑请求 deadline；failover 关闭
+  // 的组一次物理尝试即终态，不应把 requestDeadlineMs 当超时套上去。
+  const deadlineAt = group.failover.enabled
+    ? options.deadlineAt ?? computeRequestDeadlineMs(Date.now(), group.failover.requestDeadlineMs)
+    : undefined;
 
   // deadline 门：任何新成员选择（含 pin 复用与 failover 重选）之前判定；
   // 已过期请求不得再消耗成员尝试预算（spec §9）。
-  if (isDeadlineExceeded(Date.now(), deadlineAt)) {
+  if (deadlineAt !== undefined && isDeadlineExceeded(Date.now(), deadlineAt)) {
     throw new ModelGroupRoutingError(
       "GROUP_DEADLINE_EXCEEDED",
       "Request deadline exhausted before selecting a group member",

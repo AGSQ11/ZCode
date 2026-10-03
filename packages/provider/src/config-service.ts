@@ -606,6 +606,10 @@ export class ProviderConfigService implements ProviderSource<ProviderConfigSnaps
         // 全量保存以传入配置为权威：保留旧 defaultTarget 可能在新 groups 中
         // 引用已不存在的组（悬空引用）；传入配置未带默认目标即同步清除。
         defaultTarget: nextConfig.defaultTarget,
+        // defaultModelSelection 与权威 defaultTarget 同步：model 目标镜像为
+        // 具体选择，组/未定义目标清除陈旧 legacy 值（与 setDefaultTarget 一致）。
+        defaultModelSelection:
+          nextConfig.defaultTarget?.kind === "model" ? nextConfig.defaultTarget.selection : undefined,
       };
     });
   }
@@ -673,6 +677,18 @@ export class ProviderConfigService implements ProviderSource<ProviderConfigSnaps
       }
 
       const nextGroups = currentConfig.groups.filter((g: ModelGroup) => g.id !== groupId);
+
+      // replacementGroupId 必须存在且不能等于被删组：否则重写后的
+      // defaultTarget/workloadDefaults 会指向刚被过滤掉的组（悬空引用），
+      // 在 schema 解析时才以不透明错误失败。
+      if (replacementGroupId) {
+        if (replacementGroupId === groupId) {
+          throw new Error("replacementGroupId cannot equal the deleted group id");
+        }
+        if (!nextGroups.some((g: ModelGroup) => g.id === replacementGroupId)) {
+          throw new Error(`replacementGroupId does not reference a remaining group: ${replacementGroupId}`);
+        }
+      }
 
       // Re-link or unset defaultTarget if it referenced the deleted group
       let nextDefaultTarget = currentConfig.defaultTarget;

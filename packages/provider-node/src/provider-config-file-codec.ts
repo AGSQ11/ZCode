@@ -125,13 +125,14 @@ function normalizeLegacyManualRules(input: unknown): unknown {
 
 export function encodeProviderConfigFile(update: ProviderConfigLayerUpdate) {
   // defaultTarget 是权威执行目标；legacy defaultModelSelection 只作向后兼容投影。
-  // 让显式 defaultModelSelection 优先会让 target=model B 与 legacy=model A 共存
-  // 于同一文件，旧读者按 A 路由、新读者按 B 路由（悬空一致性）。统一从
-  // defaultTarget 推导 legacy 值，只有 target 缺失时才保留旧字段原值。
+  // 组目标在场时必须清除 legacy 值：同时持久化 defaultTarget=<group> 与
+  // defaultModelSelection=<stale model> 会让旧读者按旧模型路由（悬空一致性）。
   const legacyDefault =
     update.defaultTarget?.kind === "model"
       ? update.defaultTarget.selection
-      : update.defaultModelSelection;
+      : update.defaultTarget?.kind === "group"
+        ? undefined
+        : update.defaultModelSelection;
 
   return {
     schemaVersion: CURRENT_SCHEMA_VERSION,

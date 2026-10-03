@@ -91,6 +91,9 @@ export async function runRegularTurnLoop(
         signal: state.turnAbortSignal,
       });
       if (prepared.group) {
+        // 上一步遗留租约在替换路由状态前必须释放：异常路径可能跳过 in-step
+        // finally 释放，直接覆盖会把成员容量永久泄漏（悬空租约）。
+        activeGroupRouting.activeReservation?.release("neutral");
         state.model = prepared.model;
         (state as unknown as Record<string, unknown>)[GROUP_TURN_ROUTING_STATE_KEY] = {
           requestStartedAtMs: Date.now(),
@@ -103,11 +106,15 @@ export async function runRegularTurnLoop(
           ...(activeGroupRouting.requestDependencies
             ? { requestDependencies: activeGroupRouting.requestDependencies }
             : {}),
+          // failover 重选必须使用请求起点冻结的组快照，不能在 attempt 间
+          // 重新解析实时配置（中途改配置只影响下一逻辑请求）。
+          frozenGroup: prepared.group,
           failoverEnabled: prepared.group.failover.enabled,
         };
       } else {
         // 重路由返回直接模型（组已删除或目标已改为具体模型）：清除旧组路由状态，
         // 否则上一逻辑请求的 deadline/租约残留会错误约束新请求（悬空状态）。
+        activeGroupRouting.activeReservation?.release("neutral");
         state.model = prepared.model;
         delete (state as unknown as Record<string, unknown>)[GROUP_TURN_ROUTING_STATE_KEY];
       }

@@ -119,8 +119,11 @@ export function computeEffectiveCooldownMs(
   retryAfterMs?: number | null,
 ): number {
   const base = computeBaseCooldownMs(consecutiveFailures);
-  if (retryAfterMs !== undefined && retryAfterMs !== null && !isNaN(retryAfterMs)) {
-    return Math.max(base, Math.max(0, retryAfterMs));
+  // Infinity/NaN/非有限值会让 cooldownUntil 变成 Infinity，单条响应就把端点
+  // 永久移出路由（悬空冷却）。只接受有限值并钳到计时器安全上限。
+  if (retryAfterMs !== undefined && retryAfterMs !== null && Number.isFinite(retryAfterMs)) {
+    const TIMER_SAFE_MAX_DELAY_MS = 2_147_483_647;
+    return Math.max(base, Math.min(Math.max(0, retryAfterMs), TIMER_SAFE_MAX_DELAY_MS));
   }
   return base;
 }
@@ -137,13 +140,13 @@ export function rankCandidates(
   candidates: readonly MemberCandidate[],
   strategy: RoutingStrategy,
   cursorIndex: number,
-  totalMemberCount?: number,
+  totalMemberCount: number,
 ): readonly MemberCandidate[] {
   if (candidates.length <= 1) return candidates;
 
   // 环形序号必须覆盖全组成员顺序（含不合格尾部成员）：只按合格候选推导
   // 环长会让游标距离失真，尾部成员不合格时 round_robin/平局次序与真实组顺序背离（P1）。
-  const totalMembers = totalMemberCount ?? Math.max(...candidates.map((c) => c.index)) + 1;
+  const totalMembers = totalMemberCount;
   // 游标超出派生环长时距离必须仍为非负：JS % 对负操作数返回负值，会把
   // round_robin/平局次序倒序化（悬空排序）。
   const cursorDistance = (idx: number) =>

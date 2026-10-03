@@ -304,6 +304,15 @@ export function parseRetryAfterMs(headers?: Record<string, string>): number | un
 export function parseRetryAfterMsHeaderValue(
   headers: Record<string, string>,
 ): number | undefined {
+  // 负值/无界值会让路由层冷却被静默（负冷却即永久放行）；解析层归一化到
+  // 非负、计时器安全上限内，与路由层的 effectiveCooldownMs 保持一致口径。
+  return clampToSafeDelayMs(rawRetryAfterMsHeaderValue(headers));
+}
+
+/** 原始 Retry-After 头解析（含非法值）；仅供本文件内部归一化。 */
+function rawRetryAfterMsHeaderValue(
+  headers: Record<string, string>,
+): number | undefined {
   const retryAfterMs = parseNumericHeaderMs(findHeaderValue(headers, "retry-after-ms"));
   if (retryAfterMs !== undefined) {
     return retryAfterMs;
@@ -316,23 +325,24 @@ export function parseRetryAfterMsHeaderValue(
 
   const seconds = Number(value);
   if (Number.isFinite(seconds)) {
-    return Math.max(0, Math.round(seconds * 1000));
+    return Math.round(seconds * 1000);
   }
 
   const timestamp = Date.parse(value);
   if (Number.isFinite(timestamp)) {
-    return Math.max(0, timestamp - Date.now());
+    return timestamp - Date.now();
   }
 
   return undefined;
 }
 
-/** 解析/换算结果只允许钳到安全整数；不给 provider 指示的合法等待设时长上限。 */
+/** 解析/换算结果只允许钳到计时器安全上限；不给 provider 指示的合法等待设时长上限。 */
 function clampToSafeDelayMs(value: number | undefined): number | undefined {
   if (value === undefined || !Number.isFinite(value)) {
     return undefined;
   }
-  return Math.min(Math.max(0, value), Number.MAX_SAFE_INTEGER);
+  const TIMER_SAFE_MAX_DELAY_MS = 2_147_483_647;
+  return Math.min(Math.max(0, value), TIMER_SAFE_MAX_DELAY_MS);
 }
 
 function findHeaderValue(headers: Record<string, string>, name: string): string | undefined {

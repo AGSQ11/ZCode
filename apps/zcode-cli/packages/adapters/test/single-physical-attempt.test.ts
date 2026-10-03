@@ -154,19 +154,20 @@ test("Spec §10: 429-shaped adapter error exposes retryAfterMs on thrown error c
   assert.equal(thrown.context?.retryAfterMs, 120_000);
 
   // 数字秒与 HTTP-date 两种 Retry-After 形态共用 failure-inspection 的同一个解析器。
-  const httpDateFailure = classifyModelFailure(
-    new APICallError({
-      message: "Too Many Requests",
-      url: "https://provider.example/v1/chat/completions",
-      requestBodyValues: {},
-      statusCode: 429,
-      responseHeaders: { "retry-after": new Date(Date.now() + 90_000).toUTCString() },
-      isRetryable: true,
-    }),
-  );
+  // 必须用携带 HTTP-date 头的同一个 error 调用 toAdapterError：复用前面数字秒的
+  // apiError 会让 HTTP-date 路径根本没被验证（错误对象不匹配）。
+  const httpDateError = new APICallError({
+    message: "Too Many Requests",
+    url: "https://provider.example/v1/chat/completions",
+    requestBodyValues: {},
+    statusCode: 429,
+    responseHeaders: { "retry-after": new Date(Date.now() + 90_000).toUTCString() },
+    isRetryable: true,
+  });
+  const httpDateFailure = classifyModelFailure(httpDateError);
   assert.ok(httpDateFailure.retryAfterMs !== undefined);
   assert.ok(httpDateFailure.retryAfterMs > 0);
-  const httpDateThrown = toAdapterError(apiError, httpDateFailure, statusContext, 1);
+  const httpDateThrown = toAdapterError(httpDateError, httpDateFailure, statusContext, 1);
   assert.equal(httpDateThrown.context?.retryAfterMs, httpDateFailure.retryAfterMs);
 
   // 不给 provider 指示的合法等待设时长上限（旧实现的 60s/5min 上限会破坏路由层冷却）；

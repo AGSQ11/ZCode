@@ -360,6 +360,10 @@ function arePromptHistoryEntriesEqual(left: readonly string[], right: readonly s
   return left.length === right.length && left.every((entry, index) => entry === right[index]);
 }
 
+// 缺省 modelGroupTargets 必须用模块级常量：默认参数 `= []` 每次渲染都生成新数组
+// 引用，包含它的 memo/effect 依赖会被持续失效（破坏既有宿主的 memoization）。
+const EMPTY_MODEL_GROUP_TARGETS: readonly ModelGroup[] = [];
+
 interface ConversationComposerProps {
   snapshot: ConversationSnapshot | null;
   /** 草稿 scope（sessionId；draft 态 null → "__draft__" scope）。 */
@@ -533,7 +537,7 @@ function ConversationComposerImpl({
   onStop,
   onSelectModel,
   onSelectGroup,
-  modelGroupTargets = [],
+  modelGroupTargets = EMPTY_MODEL_GROUP_TARGETS,
   onSelectThought,
   onSwitchMode,
   onSetSystemPrompt,

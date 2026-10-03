@@ -24,7 +24,7 @@ import {
 } from "../helpers/child-client-ports.js";
 import type { AgentRuntimeConfig, ActiveTurnInfo } from "../types.js";
 import type { AgentRuntimeInternal } from "../internal.js";
-import { cloneModelSelection } from "../model-selection.js";
+import { cloneExecutionTarget, cloneModelSelection } from "../model-selection.js";
 import { applyRuntimeExecutionState } from "../execution-state.js";
 
 import { orderProviderVisibleToolContracts } from "../../tool/provider-visible-order.js";
@@ -116,7 +116,10 @@ export function setSessionModelSelection(
 }
 
 export function getSessionExecutionTarget(this: AgentRuntimeInternal): import("@zcode/shared/model-group-types").ExecutionTarget | undefined {
-  return this.sessionExecutionTarget;
+  // 按形状返回克隆：直接返回内部引用会让调用方的原地修改静默穿透
+  // 运行时目标（与 sessionModelSelection 的 cloneModelSelection 同一防御语义）。
+  const target = this.sessionExecutionTarget;
+  return target ? cloneExecutionTarget(target) : undefined;
 }
 
 export function setSessionExecutionTarget(
@@ -124,7 +127,8 @@ export function setSessionExecutionTarget(
   target: import("@zcode/shared/model-group-types").ExecutionTarget | undefined,
 ): void {
   const previous = this.sessionExecutionTarget;
-  this.sessionExecutionTarget = target;
+  // 存入前克隆：调用方持有的对象后续被原地修改时，运行时状态不能跟着变。
+  this.sessionExecutionTarget = target ? cloneExecutionTarget(target) : undefined;
   if (target?.kind === "model") {
     this.sessionModelSelection = cloneModelSelection(target.selection);
   } else if (target?.kind === "group") {

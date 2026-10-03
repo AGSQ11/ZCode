@@ -429,7 +429,9 @@ export function boundWorkflowLaunchMeta(input: WorkflowLaunchMeta): WorkflowLaun
   if (input.description !== undefined) {
     bounded.description =
       input.description.length > WORKFLOW_LAUNCH_DESCRIPTION_MAX_CHARS
-        ? `${input.description.slice(0, WORKFLOW_LAUNCH_DESCRIPTION_MAX_CHARS - 1)}...`
+        ? // 截断结果必须仍 ≤ MAX_CHARS：slice 到 MAX-3 再加 "..."（3 字符），
+          // 旧实现 slice 到 MAX-1 会产出 MAX+2，越过该常量存在的边界。
+          `${input.description.slice(0, WORKFLOW_LAUNCH_DESCRIPTION_MAX_CHARS - 3)}...`
         : input.description;
   }
   // display 已在构造处（createCreateWorkflowDisplay + boundCausalityGraph）限长，原样透传。

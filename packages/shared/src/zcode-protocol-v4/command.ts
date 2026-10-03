@@ -237,14 +237,6 @@ export const commandPayloadSchemas = {
       {
         message: "switchModelConfig cannot carry both an executionTarget and a concrete provider/model",
       },
-    )
-    .refine(
-      // thought 在具体模型路径上是历史必填语义（旧 schema z.string()）：
-      // 改为可空会破坏依赖旧必填的消费方；组目标路径不要求 thought。
-      (payload) => Boolean(payload.executionTarget) || Boolean(payload.thought?.trim()),
-      {
-        message: "switchModelConfig on the concrete model path requires a thought level",
-      },
     ),
   // additive（冻结面按黄金测试背书演进）：agent 协作模式切换。
   // 值域 = core CollaborationMode 的可切换子集（auto 非用户可切，不进 UI 命令面）。

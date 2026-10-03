@@ -776,8 +776,9 @@ function V4ComposerModelControlsImpl({
   }, [displayProvider, intl, modelSelectionView]);
 
   // 模型组目录：值编码为 `group:<groupId>`，与普通 provider/model 编码区分。
+  // 仅当调用方提供 onSelectGroup 时渲染--否则菜单项点击会静默无操作（悬空处理）。
   const modelGroupSelectGroup = useMemo<ModelSelectGroup | null>(() => {
-    if (modelGroupTargets.length === 0) return null;
+    if (modelGroupTargets.length === 0 || !onSelectGroup) return null;
     return {
       key: "model-groups",
       label: intl.formatMessage({ id: "chat.toolbar.model.modelGroups" }),
@@ -789,7 +790,7 @@ function V4ComposerModelControlsImpl({
         badgeLabel: group.workloadLevel.toUpperCase(),
       })),
     };
-  }, [intl, modelGroupTargets]);
+  }, [intl, modelGroupTargets, onSelectGroup]);
 
   const mergedModelSelectGroups = useMemo<ModelSelectGroup[]>(
     () => (modelGroupSelectGroup ? [...modelSelectGroups, modelGroupSelectGroup] : modelSelectGroups),

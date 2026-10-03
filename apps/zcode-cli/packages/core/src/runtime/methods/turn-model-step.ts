@@ -839,7 +839,7 @@ async function runModelBackedTurnStepImpl(
 
 function buildAutomationCreateLimitFallback(input: string): string {
   if (/\p{Script=Han}/u.test(input)) {
-    return "定时任务已达到 20 个上限，本次未创建。请前往“自动化”手动删除一个已有任务后重试。";
+    return "定时任务已达到 20 个上限，本次未创建。请前往「自动化」手动删除一个已有任务后重试。";
   }
   return "The limit of 20 scheduled tasks has been reached, so no task was created. Manually delete an existing task on the Automations page, then try again.";
 }
@@ -1134,6 +1134,9 @@ async function tryPrepareGroupFailoverAttempt(
       requestDependencies: groupRouting.requestDependencies,
       excludedMemberIds: groupRouting.attemptedMemberIds,
       deadlineAt: groupRouting.deadlineAtMs,
+      // failover 必须用请求起点冻结的组快照；实时解析会让 attempt 间的
+      // revision/成员集漂移，把中途删除误判成普通失败。
+      ...(groupRouting.frozenGroup ? { frozenGroup: groupRouting.frozenGroup } : {}),
       signal: state.turnAbortSignal,
     });
     if (!prepared.group || !prepared.reservation) {
