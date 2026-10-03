@@ -1269,8 +1269,10 @@ export function SessionPane({
   // 目标 Host 的 modelGroupsService，菜单不自行缓存或推断。
   const [enabledModelGroups, setEnabledModelGroups] = useState<ModelGroup[]>([]);
   useEffect(() => {
+    // 服务实例切换或读取失败时必须清空旧状态：保留上一服务的组会把失效
+    // 目标留在菜单里，选中后路由到已不存在的组（悬空状态）。
+    setEnabledModelGroups([]);
     if (!modelGroupsService) {
-      setEnabledModelGroups([]);
       return undefined;
     }
     let disposed = false;
@@ -1284,6 +1286,7 @@ export function SessionPane({
         logger.warn("[v4-pane] model groups 目录加载失败", {
           error: error instanceof Error ? error.message : String(error),
         });
+        if (!disposed) setEnabledModelGroups([]);
       });
     const subscription = modelGroupsService.onDidChange(apply);
     return () => {
@@ -1435,9 +1438,16 @@ export function SessionPane({
       sessionCreateSource?: SessionCreateSource,
     ): Promise<CommandAck> => {
       const submission = submissionConfigFromCommand(type, payload);
-      const acceptRecent = submission && submission.modelSelection
-        ? captureComposerRecentSubmission(workspacePath, { ...submission, modelSelection: submission.modelSelection }, workspaceIdentity)
-        : undefined;
+      const acceptRecent =
+        submission && submission.modelSelection
+          ? captureComposerRecentSubmission(
+              workspacePath,
+              // modelSelection 已由上方 guard 收窄为非空；ComposerSubmissionConfig 声明为可选
+              // 需要显式窄化到 capture 的必填签名（原无操作 spread 只是重建同一对象）。
+              { mode: submission.mode, modelSelection: submission.modelSelection },
+              workspaceIdentity,
+            )
+          : undefined;
       // Bug 原因：group 提交的 modelSelection 为 undefined，旧代码伪造
       // { providerId: "", modelId: "" } 交给 captureAcceptedModelSelection；accepted 后
       // 会把空选择写回草稿，覆盖 group intent。group 目标没有单模型可回写，

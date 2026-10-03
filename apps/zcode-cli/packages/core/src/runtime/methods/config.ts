@@ -113,6 +113,16 @@ export function setSessionModelSelection(
 ): void {
   // 恢复/配置刷新可以清除失效选择；未绑定不应借用默认模型，也不影响正在执行的 Active Model。
   this.sessionModelSelection = selection && cloneModelSelection(selection);
+  // 双向同步：selection 变化必须让权威执行目标保持一致--旧写路径只改
+  // sessionModelSelection 会让 sessionExecutionTarget 停留在过期组/模型上，
+  // 后续路由按陈旧目标派发（悬空一致性）。组 pin 只在同一目标内有意义，
+  // 目标变化即失效。
+  const previousTarget = this.sessionExecutionTarget;
+  const nextTarget = selection ? { kind: "model" as const, selection: cloneModelSelection(selection) } : undefined;
+  this.sessionExecutionTarget = nextTarget;
+  if (!sameExecutionTarget(previousTarget, nextTarget)) {
+    this.turnPinnedMemberId = undefined;
+  }
 }
 
 export function getSessionExecutionTarget(this: AgentRuntimeInternal): import("@zcode/shared/model-group-types").ExecutionTarget | undefined {

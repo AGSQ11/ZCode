@@ -69,7 +69,7 @@ export function ModelGroupsSection() {
       const latest = await modelGroupsService.getConfig();
       setConfig(latest);
     } catch (error) {
-      toast(`Failed to load model groups: ${String(error)}`);
+      toast(intl.formatMessage({ id: "settings.modelGroups.errorLoad" }, { error: String(error) }));
     } finally {
       setLoading(false);
     }
@@ -145,10 +145,10 @@ export function ModelGroupsSection() {
     if (!modelGroupsService) return;
     try {
       await modelGroupsService.duplicateGroup(groupId, crypto.randomUUID());
-      toast("Group duplicated successfully");
+      toast(intl.formatMessage({ id: "settings.modelGroups.duplicateSuccess" }));
       await reloadConfig();
     } catch (error) {
-      toast(`Duplicate failed: ${String(error)}`);
+      toast(intl.formatMessage({ id: "settings.modelGroups.errorDuplicate" }, { error: String(error) }));
     }
   };
 
@@ -169,7 +169,7 @@ export function ModelGroupsSection() {
     if (!confirmed) return;
     try {
       await modelGroupsService.deleteGroup(groupId);
-      toast("Group deleted successfully");
+      toast(intl.formatMessage({ id: "settings.modelGroups.deleteSuccess" }));
       if (editingGroupId === groupId) {
         setEditingGroupId(null);
         setEditingGroupDraft(null);
@@ -177,7 +177,7 @@ export function ModelGroupsSection() {
       }
       await reloadConfig();
     } catch (error) {
-      toast(`Delete failed: ${String(error)}`);
+      toast(intl.formatMessage({ id: "settings.modelGroups.errorDelete" }, { error: String(error) }));
     }
   };
 
@@ -199,11 +199,11 @@ export function ModelGroupsSection() {
   const handleSaveDraft = async () => {
     if (!modelGroupsService || !editingGroupDraft) return;
     if (!validateGroupName(editingGroupDraft.name)) {
-      toast("Group name must be 1..80 NFC characters with no control characters");
+      toast(intl.formatMessage({ id: "settings.modelGroups.errorNameInvalid" }));
       return;
     }
     if (editingGroupDraft.enabled && !editingGroupDraft.members.some((m) => m.enabled)) {
-      toast("An enabled group must have at least one enabled member");
+      toast(intl.formatMessage({ id: "settings.modelGroups.errorNoEnabledMember" }));
       return;
     }
     try {
@@ -213,7 +213,7 @@ export function ModelGroupsSection() {
         editingGroupDraft,
         editingBaseRevision ?? undefined,
       );
-      toast("Group saved successfully");
+      toast(intl.formatMessage({ id: "settings.modelGroups.saveSuccess" }));
       setEditingGroupId(null);
       setEditingGroupDraft(null);
       setEditingBaseRevision(null);
@@ -235,7 +235,7 @@ export function ModelGroupsSection() {
         }
         return;
       }
-      toast(`Save failed: ${String(error)}`);
+      toast(intl.formatMessage({ id: "settings.modelGroups.errorSave" }, { error: String(error) }));
     }
   };
 
@@ -245,7 +245,7 @@ export function ModelGroupsSection() {
       await modelGroupsService.setWorkloadDefault(level, groupId || undefined);
       await reloadConfig();
     } catch (error) {
-      toast(`Failed to set workload default: ${String(error)}`);
+      toast(intl.formatMessage({ id: "settings.modelGroups.errorWorkloadDefault" }, { error: String(error) }));
     }
   };
 
@@ -395,11 +395,11 @@ export function ModelGroupsSection() {
                   }}
                 >
                   <X className="h-4 w-4 mr-1" />
-                  Cancel
+                  {intl.formatMessage({ id: "settings.modelGroups.cancel" })}
                 </Button>
                 <Button size="sm" onClick={handleSaveDraft}>
                   <Save className="h-4 w-4 mr-1" />
-                  Save Group
+                  {intl.formatMessage({ id: "settings.modelGroups.saveGroup" })}
                 </Button>
               </div>
             </div>
@@ -457,7 +457,7 @@ export function ModelGroupsSection() {
                 >
                   {ROUTING_STRATEGIES.map((strat) => (
                     <option key={strat} value={strat}>
-                      {strat.replace("_", " ").toUpperCase()}
+                      {intl.formatMessage({ id: `settings.modelGroups.strategy.${strat}` })}
                     </option>
                   ))}
                 </select>
@@ -478,8 +478,8 @@ export function ModelGroupsSection() {
                   }
                   className={selectClassName}
                 >
-                  <option value="turn">Turn-sticky (Recommended)</option>
-                  <option value="request">Per-request balanced</option>
+                  <option value="turn">{intl.formatMessage({ id: "settings.modelGroups.affinityTurn" })}</option>
+                  <option value="request">{intl.formatMessage({ id: "settings.modelGroups.affinityRequest" })}</option>
                 </select>
               }
             />
@@ -497,14 +497,16 @@ export function ModelGroupsSection() {
                     if (availableModels.length === 0) return;
                     // Bug 修复（L）：追加首个与现有成员不重复 (providerId, modelId) 的模型，
                     // 避免保存时撞 schema 的重复成员校验并只得到不透明错误。
+                    // 键必须与 memberOptionKey（=schema 重复检测键）一致--'|' 分隔符在
+                    // id 含 '|' 时会假碰撞（如 a|b/c vs a/b|c）。
                     const existingKeys = new Set(
-                      editingGroupDraft.members.map(
-                        (m) => `${m.selection.providerId}|${m.selection.modelId}`,
+                      editingGroupDraft.members.map((m) =>
+                        memberOptionKey(m.selection.providerId, m.selection.modelId),
                       ),
                     );
                     const first =
                       availableModels.find(
-                        (m) => !existingKeys.has(`${m.providerId}|${m.modelId}`),
+                        (m) => !existingKeys.has(memberOptionKey(m.providerId, m.modelId)),
                       ) ?? null;
                     if (!first) {
                       toast(intl.formatMessage({ id: "settings.modelGroups.noNewMemberModel" }));
@@ -531,7 +533,7 @@ export function ModelGroupsSection() {
                   }}
                 >
                   <Plus className="h-3 w-3 mr-1" />
-                  Add Member
+                  {intl.formatMessage({ id: "settings.modelGroups.addMember" })}
                 </Button>
               </div>
 
@@ -622,7 +624,7 @@ export function ModelGroupsSection() {
                       <div className="flex items-center gap-3">
                         {editingGroupDraft.strategy === "balanced" && (
                           <div className="flex items-center gap-1">
-                            <span className="text-xs text-foreground-subtle">Weight:</span>
+                            <span className="text-xs text-foreground-subtle">{intl.formatMessage({ id: "settings.modelGroups.weight" })}</span>
                             <Input
                               type="number"
                               min="1"
@@ -631,7 +633,9 @@ export function ModelGroupsSection() {
                               onChange={(e) =>
                                 updateMember(idx, {
                                   ...member,
-                                  weight: Math.max(1, parseInt(e.target.value) || 1),
+                                  // 双向钳制到声明的 1..100：HTML max 不约束手输，超上限值会在 schema 保存时
+                                  // 才失败成不透明错误。
+                                  weight: Math.min(100, Math.max(1, parseInt(e.target.value) || 1)),
                                 })
                               }
                               className="w-16 h-7 text-xs"
@@ -671,7 +675,7 @@ export function ModelGroupsSection() {
                     <span className="font-semibold text-foreground">{group.name}</span>
                     <SettingsBadge>{workloadLevelLabel(group.workloadLevel)}</SettingsBadge>
                     <span className="text-xs text-foreground-subtle">
-                      {group.strategy.replace("_", " ")} •{" "}
+                      {intl.formatMessage({ id: `settings.modelGroups.strategy.${group.strategy}` })} •{" "}
                       {intl.formatMessage(
                         { id: "settings.modelGroups.memberCounts" },
                         {
@@ -683,7 +687,7 @@ export function ModelGroupsSection() {
                     </span>
                     {!group.enabled && (
                       <span className="rounded bg-destructive/10 px-1.5 py-0.5 text-xs text-destructive">
-                        Disabled
+                        {intl.formatMessage({ id: "settings.modelGroups.disabledBadge" })}
                       </span>
                     )}
                   </div>
@@ -695,7 +699,7 @@ export function ModelGroupsSection() {
                 <div className="flex items-center gap-2">
                   <Button size="sm" variant="outline" onClick={() => openEditor(group)}>
                     <Edit2 className="h-3.5 w-3.5 mr-1" />
-                    Edit
+                    {intl.formatMessage({ id: "settings.modelGroups.edit" })}
                   </Button>
                   <Button
                     size="sm"
@@ -703,7 +707,7 @@ export function ModelGroupsSection() {
                     onClick={() => handleDuplicateGroup(group.id)}
                   >
                     <Copy className="h-3.5 w-3.5 mr-1" />
-                    Duplicate
+                    {intl.formatMessage({ id: "settings.modelGroups.duplicate" })}
                   </Button>
                   <Button
                     size="sm"
