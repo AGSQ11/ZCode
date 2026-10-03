@@ -134,7 +134,7 @@ export function computeGroupAttemptBudget(group: ModelGroup): number {
 /**
  * 组路由的 turn-loop 载体。RegularTurnLoopState 的接口归 turn-loop-state.ts 所有，
  * 本字段在 turn.ts 构造 loopState 时以类型断言附加，turn-model-step.ts 经
- * readGroupTurnRouting 读回——跨文件的唯一约定点就是这个属性名。
+ * readGroupTurnRouting 读回--跨文件的唯一约定点就是这个属性名。
  */
 export const GROUP_TURN_ROUTING_STATE_KEY = "groupTurnRouting" as const;
 
@@ -242,7 +242,7 @@ export async function prepareRoutedAttempt(
   if (group.affinity === "turn" && runtime.turnPinnedMemberId && !excluded.has(runtime.turnPinnedMemberId)) {
     const pinnedMember = group.members.find((m) => m.id === runtime.turnPinnedMemberId && m.enabled);
     if (pinnedMember) {
-      // P1-2：pin 路径必须用 reservePinnedMember——此前用单成员假组调
+      // P1-2：pin 路径必须用 reservePinnedMember--此前用单成员假组调
       // selectAndReserve，其末尾 setGroupCursor(group.id, (0+1)%1=0) 会在每次
       // pin 复用时把真实组的 round_robin/平局游标静默重置为 0。
       const res = await router.reservePinnedMember(group, pinnedMember);
@@ -253,19 +253,26 @@ export async function prepareRoutedAttempt(
           requestDependencies: options.requestDependencies,
           singlePhysicalAttempt: true,
         });
-        await runtime.emitModelGroupRouted({
-          payload: {
-            groupId: group.id,
-            groupName: group.name,
-            groupRevision: group.revision,
-            memberId: member.id,
-            attemptNumber,
-            maxAttempts,
-            actualSelection: member.selection,
-            reason: "turn_pin",
-          },
-          traceContext: options.traceContext,
-        });
+        try {
+          await runtime.emitModelGroupRouted({
+            payload: {
+              groupId: group.id,
+              groupName: group.name,
+              groupRevision: group.revision,
+              memberId: member.id,
+              attemptNumber,
+              maxAttempts,
+              actualSelection: member.selection,
+              reason: "turn_pin",
+            },
+            traceContext: options.traceContext,
+          });
+        } catch (error) {
+          // 事件下发失败时租约已持有且不会到达调用方，必须就地释放，
+          // 否则在飞计数永久泄漏（悬空租约）。
+          reservation.release("neutral");
+          throw error;
+        }
         return {
           model,
           selection: member.selection,
@@ -317,27 +324,34 @@ export async function prepareRoutedAttempt(
     singlePhysicalAttempt: true,
   });
 
-  await runtime.emitModelGroupRouted({
-    payload: {
-      groupId: group.id,
-      groupName: group.name,
-      groupRevision: group.revision,
-      memberId: member.id,
-      attemptNumber,
-      maxAttempts,
-      actualSelection: member.selection,
-      reason:
-        excluded.size > 0
-          ? "failover"
-          : previousPin && previousPin !== member.id
-            ? "capacity"
-            : "initial",
-      ...(previousPin && previousPin !== member.id
-        ? { transitionFromMemberId: previousPin }
-        : {}),
-    },
-    traceContext: options.traceContext,
-  });
+  try {
+    await runtime.emitModelGroupRouted({
+      payload: {
+        groupId: group.id,
+        groupName: group.name,
+        groupRevision: group.revision,
+        memberId: member.id,
+        attemptNumber,
+        maxAttempts,
+        actualSelection: member.selection,
+        reason:
+          excluded.size > 0
+            ? "failover"
+            : previousPin && previousPin !== member.id
+              ? "capacity"
+              : "initial",
+        ...(previousPin && previousPin !== member.id
+          ? { transitionFromMemberId: previousPin }
+          : {}),
+      },
+      traceContext: options.traceContext,
+    });
+  } catch (error) {
+    // 事件下发失败时租约已持有且不会到达调用方，必须就地释放，
+    // 否则在飞计数永久泄漏（悬空租约）。
+    reservation.release("neutral");
+    throw error;
+  }
 
   return {
     model,

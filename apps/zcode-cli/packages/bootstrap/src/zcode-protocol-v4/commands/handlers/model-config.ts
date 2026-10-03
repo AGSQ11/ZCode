@@ -81,8 +81,16 @@ async function switchModelConfig(
   const record = requireRecord(host, envelope.sessionId);
   return runSessionModelConfigMutation(record.app, async () => {
     if (payload.executionTarget) {
-      record.app.runtime.setSessionExecutionTarget(payload.executionTarget);
+      // 先做可失败校验再写目标：提前 setSessionExecutionTarget 后任一后续步骤
+      // 抛错都会在持久会话上留下「目标已改、模型状态未配」的部分状态。
       if (payload.executionTarget.kind === "group") {
+        record.app.runtime.setSessionExecutionTarget(payload.executionTarget);
+        return undefined;
+      }
+      // 具体模型目标：确认 provider 在当前 Environment Registry 可用后再写。
+      await ensureProviderClientReady(host, record.app.sessionId, payload.executionTarget.selection.providerId);
+      record.app.runtime.setSessionExecutionTarget(payload.executionTarget);
+      if (!payload.provider || !payload.model) {
         return undefined;
       }
     }

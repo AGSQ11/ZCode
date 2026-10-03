@@ -285,6 +285,22 @@ export class ModelGroupRouter {
         // P1-3: attempts24h 仅在物理请求真正开始执行后自增，且恰好一次。
         if (dispatched) return;
         dispatched = true;
+        // 滚动桶先按当前时刻滚动：租约在 H 时取得、H+1 才派发的尝试必须计入
+        // 当前小时桶；直接写 hourlyBuckets[0] 会把旧小时再计一次并在下一轮
+        // 提前失效（24h 滚动窗口失真，least_used 偏向)。
+        const currentHour = Math.floor(this.#now() / 3600000);
+        const diff = currentHour - metrics.currentBucketHour;
+        if (diff > 0) {
+          if (diff >= 24) {
+            metrics.hourlyBuckets.fill(0);
+          } else {
+            for (let i = 0; i < diff; i++) {
+              metrics.hourlyBuckets.pop();
+              metrics.hourlyBuckets.unshift(0);
+            }
+          }
+          metrics.currentBucketHour = currentHour;
+        }
         metrics.hourlyBuckets[0] = (metrics.hourlyBuckets[0] ?? 0) + 1;
       },
       release: (outcome, retryAfterMs) => {
@@ -296,10 +312,16 @@ export class ModelGroupRouter {
         this.#memberInFlight.set(memberCapKey, Math.max(0, cur - 1));
 
         if (outcome === "success") {
-          // Closed circuit, reset consecutive failures
-          metrics.consecutiveFailures = 0;
-          metrics.cooldownUntil = null;
-          metrics.isHalfOpen = false;
+          // 并发干扰保护：本租约在飞期间另一租约的失败可能已触发 cooldown；
+          // 成功只能关闭"由本租约的半开探针验证的"熔断，不能清掉别人
+          // 在取租后新踩出的故障（否则熔断器被静默，冷却端点继续吃流量）。
+          if (isHalfOpen || (metrics.cooldownUntil === null && !metrics.isHalfOpen)) {
+            metrics.consecutiveFailures = 0;
+            metrics.cooldownUntil = null;
+            metrics.isHalfOpen = false;
+          } else if (isHalfOpen) {
+            metrics.isHalfOpen = false;
+          }
         } else if (outcome === "transient_failure") {
           // Open or re-trip circuit
           metrics.consecutiveFailures++;

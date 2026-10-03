@@ -1511,7 +1511,12 @@ export function createConversationV4Gateway(
         // P1-5 修复：种子必须携带结构化执行目标（组意图），否则 createSession.config /
         // switchModelConfig 写入 runtime 的 group target 永远进不了 v4 快照的
         // config.executionTarget--投影 seedConfig 只填事件未触碰的字段，种子是唯一通道。
-        executionTarget: record.app.runtime.getSessionExecutionTarget(),
+        executionTarget: (() => {
+          const target = record.app.runtime.getSessionExecutionTarget();
+          // 种子必须克隆：runtime 的 live target 是可变引用，直接别名进快照会让
+          // 后续运行时内修改静默穿透 v4 seed（悬空共享状态）。
+          return target ? (structuredClone(target) as typeof target) : undefined;
+        })(),
         provider: selection?.providerId ?? "",
         model: selection?.modelId ?? "",
         thought: selection?.options?.reasoningLevel ?? "",

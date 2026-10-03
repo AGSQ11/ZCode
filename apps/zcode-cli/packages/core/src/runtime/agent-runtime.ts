@@ -280,7 +280,11 @@ export class AgentRuntime {
     this.browserControlPort = deps.browserControlPort;
     this.modelRequestAdmission = deps.modelRequestAdmission;
     this.modelGroupRouter = deps.modelGroupRouter;
-    this.sessionExecutionTarget = config.executionTarget;
+    // executionTarget 必须克隆：与下方 modelSelection 的 cloneModelSelection 同理，
+    // 直接别名会让调用方对同一对象的原地修改静默穿透运行时目标（悬空共享状态）。
+    this.sessionExecutionTarget = config.executionTarget
+      ? (structuredClone(config.executionTarget) as typeof config.executionTarget)
+      : undefined;
     // 模型组配置的读取点是 methods/turn-model.ts 的 runtime.config.modelGroupsConfig
     // （函数或快照均可，由该处消费时解析），ctor 不做二次拷贝。
     // 旧会话的选择缺失不能阻断历史恢复；不在这里制造默认模型。

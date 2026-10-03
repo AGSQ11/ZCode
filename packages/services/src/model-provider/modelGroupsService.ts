@@ -59,8 +59,10 @@ export function createModelGroupsService(
     },
     saveConfig: async (config, expectedRevision) => {
       await ensureReady();
-      const snapshot = await configService.saveModelGroupsConfig(config, expectedRevision);
-      return snapshot.modelGroups ?? config;
+      await configService.saveModelGroupsConfig(config, expectedRevision);
+      // 一律回读权威持久态：调用方传入值未经校验/规范化，直接返回会把
+      // 客户端输入冒充成事实源（悬空一致性）。
+      return configService.getModelGroupsConfig();
     },
     saveGroup: async (group, expectedGroupRevision) => {
       await ensureReady();

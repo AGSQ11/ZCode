@@ -180,8 +180,10 @@ test("Spec §10: 429-shaped adapter error exposes retryAfterMs on thrown error c
   };
   assert.equal(calculateRetryDelay(retryOptions, 1, 120_000), 120_000);
   assert.equal(calculateRetryDelay(retryOptions, 1, 10 * 60_000), 10 * 60_000);
+  // 超大/恶意 Retry-After 钳到计时器安全上限（Node setTimeout >2^31-1ms 会退化为 1ms，
+  // 与路由层尊重完整等待的语义背离）；合法值不受影响。
   assert.equal(
     calculateRetryDelay(retryOptions, 1, Number.MAX_SAFE_INTEGER + 1),
-    Number.MAX_SAFE_INTEGER,
+    2_147_483_647,
   );
 });

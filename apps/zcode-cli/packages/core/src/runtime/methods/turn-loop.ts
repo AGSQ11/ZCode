@@ -70,7 +70,7 @@ export async function runRegularTurnLoop(
     }
 
     // 组目标：每个新 model step 是一个独立的逻辑请求（spec §9：requestDeadlineMs
-    // 覆盖一个逻辑模型请求），必须在 step 边界重新路由——affinity='turn' 时
+    // 覆盖一个逻辑模型请求），必须在 step 边界重新路由--affinity='turn' 时
     // prepareRoutedAttempt 经 reservePinnedMember 复用 turn pin（合格且有容量时），
     // 否则按策略重选并把新成员写成新 pin；上一 step 的 lease 已在 step 内释放，
     // 网络租约不跨 step 持有（spec §6：completed attempts release network leases）。
@@ -105,6 +105,11 @@ export async function runRegularTurnLoop(
             : {}),
           failoverEnabled: prepared.group.failover.enabled,
         };
+      } else {
+        // 重路由返回直接模型（组已删除或目标已改为具体模型）：清除旧组路由状态，
+        // 否则上一逻辑请求的 deadline/租约残留会错误约束新请求（悬空状态）。
+        state.model = prepared.model;
+        delete (state as unknown as Record<string, unknown>)[GROUP_TURN_ROUTING_STATE_KEY];
       }
     }
 
@@ -277,7 +282,7 @@ function buildTurnDisallowedTools(state: RegularTurnLoopState): Set<string> | nu
   }
   if (isOffPeakCreateRestrictedTurn(state)) {
     // 闲时执行轮禁止再创建闲时任务（防递归自我派生）；OffPeakList 只读保留。
-    // 注意 automation 执行轮不进此分支——cron turn 放行 OffPeakCreate。
+    // 注意 automation 执行轮不进此分支--cron turn 放行 OffPeakCreate。
     for (const toolName of OFF_PEAK_MUTATION_TOOL_NAMES) {
       tools.add(toolName);
     }

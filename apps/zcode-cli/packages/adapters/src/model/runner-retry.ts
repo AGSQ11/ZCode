@@ -48,8 +48,12 @@ export function calculateRetryDelay(
   // provider 会返回几十秒到数分钟甚至更长的 retry-after；spec（模型组 §10）要求
   // 「不得给 provider 指示的合法等待设 60s 之类的时长上限，只对算术结果钳到安全整数」。
   // 旧实现把 >5min 的合法限流等待退化为本地短退避，这里改为：有限且 ≥0 即照用。
+  // 但消费方是 setTimeout：Node/浏览器把 >2^31-1ms（约 24.8 天）的延迟钳到 1ms，
+  // 巨大/恶意 Retry-After 反而把等待缩到 1ms，与路由层尊重完整等待的语义背离--
+  // 钳到计时器安全上限（悬空溢出）。
   if (retryAfterMs !== undefined && Number.isFinite(retryAfterMs) && retryAfterMs >= 0) {
-    return Math.min(retryAfterMs, Number.MAX_SAFE_INTEGER);
+    const TIMER_SAFE_MAX_DELAY_MS = 2_147_483_647;
+    return Math.min(retryAfterMs, TIMER_SAFE_MAX_DELAY_MS);
   }
 
   if (!retry.jitter || capped === 0) {

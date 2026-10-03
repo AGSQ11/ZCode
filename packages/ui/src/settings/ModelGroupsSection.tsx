@@ -154,6 +154,19 @@ export function ModelGroupsSection() {
 
   const handleDeleteGroup = async (groupId: string) => {
     if (!modelGroupsService) return;
+    // 删除是不可逆的破坏性操作且与 Edit/Duplicate 相邻--先经确认对话框，
+    // 与 CAS 冲突流共用一个确认组件，避免单击误删整组配置（F）。
+    const group = config.groups.find((g) => g.id === groupId);
+    const confirmed = await confirmDialog({
+      title: intl.formatMessage({ id: "settings.modelGroups.deleteTitle" }),
+      description: intl.formatMessage(
+        { id: "settings.modelGroups.deleteDesc" },
+        { name: group?.name ?? groupId },
+      ),
+      confirmLabel: intl.formatMessage({ id: "settings.modelGroups.deleteConfirm" }),
+      confirmVariant: "destructive",
+    });
+    if (!confirmed) return;
     try {
       await modelGroupsService.deleteGroup(groupId);
       toast("Group deleted successfully");
@@ -256,11 +269,24 @@ export function ModelGroupsSection() {
       const option = availableModels.find(
         (candidate) => memberOptionKey(candidate.providerId, candidate.modelId) === encoded,
       );
+      if (!option) return;
+      // Bug 修复（L）：选择模型时阻止与其它成员撞 (providerId, modelId) 重复--
+      // schema 保存时才拒绝会让用户面对不透明错误。
+      const duplicate = editingGroupDraft.members.some(
+        (m, i) =>
+          i !== index &&
+          m.selection.providerId === option.providerId &&
+          m.selection.modelId === option.modelId,
+      );
+      if (duplicate) {
+        toast(intl.formatMessage({ id: "settings.modelGroups.duplicateMemberModel" }));
+        return;
+      }
       const previousLevel = member.selection.options?.reasoningLevel;
       const reasoningLevel =
-        option && previousLevel && option.reasoningValues.includes(previousLevel)
+        previousLevel && option.reasoningValues.includes(previousLevel)
           ? previousLevel
-          : option?.reasoningValues[0];
+          : option.reasoningValues[0];
       updateMember(index, {
         ...member,
         selection: {
@@ -469,7 +495,21 @@ export function ModelGroupsSection() {
                   disabled={editingGroupDraft.members.length >= 32 || availableModels.length === 0}
                   onClick={() => {
                     if (availableModels.length === 0) return;
-                    const first = availableModels[0]!;
+                    // Bug 修复（L）：追加首个与现有成员不重复 (providerId, modelId) 的模型，
+                    // 避免保存时撞 schema 的重复成员校验并只得到不透明错误。
+                    const existingKeys = new Set(
+                      editingGroupDraft.members.map(
+                        (m) => `${m.selection.providerId}|${m.selection.modelId}`,
+                      ),
+                    );
+                    const first =
+                      availableModels.find(
+                        (m) => !existingKeys.has(`${m.providerId}|${m.modelId}`),
+                      ) ?? null;
+                    if (!first) {
+                      toast(intl.formatMessage({ id: "settings.modelGroups.noNewMemberModel" }));
+                      return;
+                    }
                     // Bug 修复（P2-2）：新成员使用目标模型的首个配置档位，
                     // 不再硬编码 "low"（该档位未必存在于 optionSpecs）。
                     const reasoningLevel = first.reasoningValues[0];

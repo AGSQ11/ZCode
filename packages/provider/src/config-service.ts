@@ -603,7 +603,9 @@ export class ProviderConfigService implements ProviderSource<ProviderConfigSnaps
       return {
         ...current,
         modelGroups: nextConfig,
-        defaultTarget: nextConfig.defaultTarget ?? current.defaultTarget,
+        // 全量保存以传入配置为权威：保留旧 defaultTarget 可能在新 groups 中
+        // 引用已不存在的组（悬空引用）；传入配置未带默认目标即同步清除。
+        defaultTarget: nextConfig.defaultTarget,
       };
     });
   }
@@ -704,12 +706,22 @@ export class ProviderConfigService implements ProviderSource<ProviderConfigSnaps
 
       const validatedConfig = modelGroupsConfigSchema.parse(nextConfig);
 
+      // 层间一致性：层级 defaultTarget 只与被删组引用关系同步--被删组是
+      // 层目标或 config 目标时才改写；无关删除不得把 config 级值无条件
+      // 覆盖到层字段（可能清掉只在层上存在的 model 类默认目标）。
+      const referencedLayerGroup = current.defaultTarget?.kind === "group" && current.defaultTarget.groupId === groupId;
+      const referencedConfigGroup = currentConfig.defaultTarget?.kind === "group" && currentConfig.defaultTarget.groupId === groupId;
+      const nextLayerDefaultTarget =
+        referencedLayerGroup || referencedConfigGroup
+          ? (replacementGroupId ? { kind: "group" as const, groupId: replacementGroupId } : undefined)
+          : current.defaultTarget;
+
       return {
         ...current,
         modelGroups: validatedConfig,
-        // 已删除组的默认目标必须同步清除：nextDefaultTarget 为 undefined 时
-        // 回退到 current.defaultTarget 会把刚删掉的组写回默认路由（P0 悬空引用）。
-        defaultTarget: nextDefaultTarget,
+        // 已删除组的默认目标必须同步清除：被删组不在任何默认目标中时保留
+        // 层字段原值，不回退到旧引用（P0 悬空引用）。
+        defaultTarget: nextLayerDefaultTarget,
       };
     });
   }
@@ -727,6 +739,11 @@ export class ProviderConfigService implements ProviderSource<ProviderConfigSnaps
       }
       if (currentConfig.groups.length >= 100) {
         throw new Error("Cannot exceed maximum 100 model groups");
+      }
+      // newId 唯一性显式校验：调用方生成的 id 若与现有组冲突，后续 find/findIndex
+      // 只解析首个条目，复制组静默不可达；在源头拒绝而不是等 schema 保存时才失败。
+      if (currentConfig.groups.some((g: ModelGroup) => g.id === newId)) {
+        throw new Error(`Model group id already exists: ${newId}`);
       }
 
       // Pick a unique copy name

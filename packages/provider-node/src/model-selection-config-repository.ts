@@ -18,8 +18,12 @@ export class NodeModelSelectionConfigRepository {
   async read(): Promise<ModelSelection | undefined> {
     this.#assertNotDisposed();
     const snapshot = await this.#personal.read();
-    if (snapshot.defaultModelSelection) return snapshot.defaultModelSelection;
+    // defaultTarget 是权威执行目标：组目标在场时必须按组路由（read() 没有具体
+    // 选择可返回），legacy defaultModelSelection 只作为缺省兼容字段，不能反过来
+    // 压过组目标（悬空一致性：设了组默认后 read() 仍路由到旧模型）。
+    if (snapshot.defaultTarget?.kind === "group") return undefined;
     if (snapshot.defaultTarget?.kind === "model") return snapshot.defaultTarget.selection;
+    if (snapshot.defaultModelSelection) return snapshot.defaultModelSelection;
     return undefined;
   }
 
