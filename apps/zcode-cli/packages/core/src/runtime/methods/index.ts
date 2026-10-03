@@ -90,6 +90,7 @@ import { shouldStreamModelText } from "./context.js";
 import { runModelTextRequest } from "./model.js";
 import { emitModelStreamingEvent } from "./model-streaming-event.js";
 import { createModelStatusSink } from "./model-status.js";
+import { emitModelGroupRouted } from "./model-status.js";
 import { logModelNetworkStatus } from "./model-status.js";
 import { logContextUsageSnapshot } from "./context-usage.js";
 import { logModelRequestSteeringContext } from "./context-usage.js";
@@ -271,6 +272,10 @@ export function installAgentRuntimeMethods(ctor: AgentRuntimeConstructor): void 
   proto.completeExternalQueueDrain = completeExternalQueueDrain;
   proto.setFollowupMode = setFollowupMode;
   proto.emitModelSelected = emitModelSelected;
+  // P0-2：组路由事件与选型/模式事件同属 runtime 对外投影；internal-methods.ts 已声明
+  // 该方法，未装配会让 prepareRoutedAttempt 的 runtime.emitModelGroupRouted 调用
+  // 在运行期 TypeError，组会话首条请求即崩。
+  proto.emitModelGroupRouted = emitModelGroupRouted;
   proto.emitModeChanged = emitModeChanged;
   proto.discardPersistedPendingSteerInputs = discardPersistedPendingSteerInputs;
   proto.discardHeldPendingInputById = discardHeldPendingInputById;

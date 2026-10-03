@@ -18,6 +18,16 @@ import {
 } from "./config/index.js";
 import { resolveOwnedOrder } from "./owned-order.js";
 import type { ModelSelection } from "@zcode/shared/model-selection";
+import {
+  type ExecutionTarget,
+  type ModelGroupsConfig,
+  type ModelGroup,
+  type WorkloadLevel,
+  DEFAULT_MODEL_GROUPS_CONFIG,
+  modelGroupsConfigSchema,
+  modelGroupSchema,
+  normalizeGroupName,
+} from "@zcode/shared/model-group-types";
 import type { ProviderConfigSnapshot, ProviderSource } from "./sources.js";
 
 export interface ProviderConfigLayerSnapshot {
@@ -27,6 +37,8 @@ export interface ProviderConfigLayerSnapshot {
   readonly models: ModelConfigRules;
   readonly providerOrder?: readonly ProviderId[];
   readonly defaultModelSelection?: ModelSelection;
+  readonly defaultTarget?: ExecutionTarget;
+  readonly modelGroups?: ModelGroupsConfig;
 }
 
 export interface ProviderConfigLayerUpdate {
@@ -35,6 +47,8 @@ export interface ProviderConfigLayerUpdate {
   readonly models: ModelConfigRules;
   readonly providerOrder?: readonly ProviderId[];
   readonly defaultModelSelection?: ModelSelection;
+  readonly defaultTarget?: ExecutionTarget;
+  readonly modelGroups?: ModelGroupsConfig;
 }
 
 export interface PersonalProviderConfigRepository extends ProviderSource<ProviderConfigLayerSnapshot> {
@@ -125,6 +139,8 @@ export class ProviderConfigService implements ProviderSource<ProviderConfigSnaps
       zcodeBuiltinModelRules: zcodeBuiltin.models,
       personalModels: personal.models,
       personalProviderOrder: personal.providerOrder ?? [],
+      personalDefaultTarget: personal.defaultTarget,
+      personalModelGroups: personal.modelGroups,
     });
   }
 
@@ -558,6 +574,281 @@ export class ProviderConfigService implements ProviderSource<ProviderConfigSnaps
     });
   }
 
+  // ==========================================================================
+  // Model Groups Operations
+  // ==========================================================================
+
+  async getModelGroupsConfig(): Promise<ModelGroupsConfig> {
+    const personal = await this.#personalRepository.read();
+    return personal.modelGroups ?? { ...DEFAULT_MODEL_GROUPS_CONFIG };
+  }
+
+  async saveModelGroupsConfig(
+    config: ModelGroupsConfig,
+    expectedRevision?: number,
+  ): Promise<ProviderConfigLayerSnapshot> {
+    // Validate schema
+    const validated = modelGroupsConfigSchema.parse(config);
+    return this.#updatePersonal((current) => {
+      const currentConfig = current.modelGroups ?? { ...DEFAULT_MODEL_GROUPS_CONFIG };
+      if (expectedRevision !== undefined && currentConfig.revision !== expectedRevision) {
+        throw new Error(
+          `Model Groups revision conflict: expected ${expectedRevision}, found ${currentConfig.revision}`,
+        );
+      }
+      const nextConfig: ModelGroupsConfig = {
+        ...validated,
+        revision: currentConfig.revision + 1,
+      };
+      return {
+        ...current,
+        modelGroups: nextConfig,
+        // 全量保存以传入配置为权威：保留旧 defaultTarget 可能在新 groups 中
+        // 引用已不存在的组（悬空引用）；传入配置未带默认目标即同步清除。
+        defaultTarget: nextConfig.defaultTarget,
+        // defaultModelSelection 与权威 defaultTarget 同步：model 目标镜像为
+        // 具体选择，组/未定义目标清除陈旧 legacy 值（与 setDefaultTarget 一致）。
+        defaultModelSelection:
+          nextConfig.defaultTarget?.kind === "model" ? nextConfig.defaultTarget.selection : undefined,
+      };
+    });
+  }
+
+  async saveGroup(
+    group: ModelGroup,
+    expectedGroupRevision?: number,
+  ): Promise<ProviderConfigLayerSnapshot> {
+    const validatedGroup = modelGroupSchema.parse(group);
+    return this.#updatePersonal((current) => {
+      const currentConfig = current.modelGroups ?? { ...DEFAULT_MODEL_GROUPS_CONFIG };
+      const existingIndex = currentConfig.groups.findIndex((g: ModelGroup) => g.id === validatedGroup.id);
+
+      let nextGroups: ModelGroup[];
+      if (existingIndex >= 0) {
+        const existing = currentConfig.groups[existingIndex];
+        if (!existing) throw new Error(`Model Group not found at index ${existingIndex}`);
+        if (expectedGroupRevision !== undefined && existing.revision !== expectedGroupRevision) {
+          throw new Error(
+            `Model Group revision conflict: expected ${expectedGroupRevision}, found ${existing.revision}`,
+          );
+        }
+        const updated: ModelGroup = {
+          ...validatedGroup,
+          revision: existing.revision + 1,
+        };
+        nextGroups = [...currentConfig.groups];
+        nextGroups[existingIndex] = updated;
+      } else {
+        if (currentConfig.groups.length >= 100) {
+          throw new Error("Cannot exceed maximum 100 model groups");
+        }
+        const newGroup: ModelGroup = {
+          ...validatedGroup,
+          revision: 1,
+        };
+        nextGroups = [...currentConfig.groups, newGroup];
+      }
+
+      const nextConfig: ModelGroupsConfig = {
+        ...currentConfig,
+        revision: currentConfig.revision + 1,
+        groups: nextGroups,
+      };
+
+      // Full config validation ensures name uniqueness, etc.
+      const validatedConfig = modelGroupsConfigSchema.parse(nextConfig);
+
+      return {
+        ...current,
+        modelGroups: validatedConfig,
+      };
+    });
+  }
+
+  async deleteGroup(
+    groupId: string,
+    replacementGroupId?: string,
+  ): Promise<ProviderConfigLayerSnapshot> {
+    return this.#updatePersonal((current) => {
+      const currentConfig = current.modelGroups ?? { ...DEFAULT_MODEL_GROUPS_CONFIG };
+      const groupToDelete = currentConfig.groups.find((g: ModelGroup) => g.id === groupId);
+      if (!groupToDelete) {
+        throw new Error(`Model Group not found: ${groupId}`);
+      }
+
+      const nextGroups = currentConfig.groups.filter((g: ModelGroup) => g.id !== groupId);
+
+      // replacementGroupId 必须存在且不能等于被删组：否则重写后的
+      // defaultTarget/workloadDefaults 会指向刚被过滤掉的组（悬空引用），
+      // 在 schema 解析时才以不透明错误失败。
+      if (replacementGroupId) {
+        if (replacementGroupId === groupId) {
+          throw new Error("replacementGroupId cannot equal the deleted group id");
+        }
+        if (!nextGroups.some((g: ModelGroup) => g.id === replacementGroupId)) {
+          throw new Error(`replacementGroupId does not reference a remaining group: ${replacementGroupId}`);
+        }
+      }
+
+      // Re-link or unset defaultTarget if it referenced the deleted group
+      let nextDefaultTarget = currentConfig.defaultTarget;
+      if (nextDefaultTarget?.kind === "group" && nextDefaultTarget.groupId === groupId) {
+        if (replacementGroupId) {
+          nextDefaultTarget = { kind: "group", groupId: replacementGroupId };
+        } else {
+          nextDefaultTarget = undefined;
+        }
+      }
+
+      // Re-link or unset workloadDefaults if they referenced the deleted group
+      const nextWorkloadDefaults = { ...currentConfig.workloadDefaults };
+      for (const [level, targetId] of Object.entries(nextWorkloadDefaults)) {
+        if (targetId === groupId) {
+          if (replacementGroupId) {
+            nextWorkloadDefaults[level as keyof typeof nextWorkloadDefaults] = replacementGroupId;
+          } else {
+            delete nextWorkloadDefaults[level as keyof typeof nextWorkloadDefaults];
+          }
+        }
+      }
+
+      const nextConfig: ModelGroupsConfig = {
+        ...currentConfig,
+        revision: currentConfig.revision + 1,
+        groups: nextGroups,
+        defaultTarget: nextDefaultTarget,
+        workloadDefaults: nextWorkloadDefaults,
+      };
+
+      const validatedConfig = modelGroupsConfigSchema.parse(nextConfig);
+
+      // 层间一致性：层级 defaultTarget 只与被删组引用关系同步--被删组是
+      // 层目标或 config 目标时才改写；无关删除不得把 config 级值无条件
+      // 覆盖到层字段（可能清掉只在层上存在的 model 类默认目标）。
+      const referencedLayerGroup = current.defaultTarget?.kind === "group" && current.defaultTarget.groupId === groupId;
+      const referencedConfigGroup = currentConfig.defaultTarget?.kind === "group" && currentConfig.defaultTarget.groupId === groupId;
+      const nextLayerDefaultTarget =
+        referencedLayerGroup || referencedConfigGroup
+          ? (replacementGroupId ? { kind: "group" as const, groupId: replacementGroupId } : undefined)
+          : current.defaultTarget;
+
+      return {
+        ...current,
+        modelGroups: validatedConfig,
+        // 已删除组的默认目标必须同步清除：被删组不在任何默认目标中时保留
+        // 层字段原值，不回退到旧引用（P0 悬空引用）。
+        defaultTarget: nextLayerDefaultTarget,
+      };
+    });
+  }
+
+  async duplicateGroup(
+    sourceGroupId: string,
+    newId: string,
+    generateMemberId: () => string,
+  ): Promise<ProviderConfigLayerSnapshot> {
+    return this.#updatePersonal((current) => {
+      const currentConfig = current.modelGroups ?? { ...DEFAULT_MODEL_GROUPS_CONFIG };
+      const source = currentConfig.groups.find((g: ModelGroup) => g.id === sourceGroupId);
+      if (!source) {
+        throw new Error(`Source model group not found: ${sourceGroupId}`);
+      }
+      if (currentConfig.groups.length >= 100) {
+        throw new Error("Cannot exceed maximum 100 model groups");
+      }
+      // newId 唯一性显式校验：调用方生成的 id 若与现有组冲突，后续 find/findIndex
+      // 只解析首个条目，复制组静默不可达；在源头拒绝而不是等 schema 保存时才失败。
+      if (currentConfig.groups.some((g: ModelGroup) => g.id === newId)) {
+        throw new Error(`Model group id already exists: ${newId}`);
+      }
+
+      // Pick a unique copy name
+      let copyIndex = 1;
+      let candidateName = `${source.name} copy`;
+      const existingNames = new Set(
+        currentConfig.groups.map((g: ModelGroup) => normalizeGroupName(g.name).toLowerCase()),
+      );
+      while (existingNames.has(normalizeGroupName(candidateName).toLowerCase())) {
+        copyIndex++;
+        candidateName = `${source.name} copy ${copyIndex}`;
+      }
+
+      const newGroup: ModelGroup = {
+        ...source,
+        id: newId,
+        revision: 1,
+        name: candidateName,
+        members: source.members.map((m: ModelGroup["members"][number]) => ({
+          ...m,
+          id: generateMemberId(),
+        })),
+      };
+
+      const nextConfig: ModelGroupsConfig = {
+        ...currentConfig,
+        revision: currentConfig.revision + 1,
+        groups: [...currentConfig.groups, newGroup],
+      };
+
+      const validatedConfig = modelGroupsConfigSchema.parse(nextConfig);
+
+      return {
+        ...current,
+        modelGroups: validatedConfig,
+      };
+    });
+  }
+
+  async setDefaultTarget(
+    target: ExecutionTarget | undefined,
+  ): Promise<ProviderConfigLayerSnapshot> {
+    return this.#updatePersonal((current) => {
+      const currentConfig = current.modelGroups ?? { ...DEFAULT_MODEL_GROUPS_CONFIG };
+      const nextConfig: ModelGroupsConfig = {
+        ...currentConfig,
+        revision: currentConfig.revision + 1,
+        defaultTarget: target,
+      };
+      const validatedConfig = modelGroupsConfigSchema.parse(nextConfig);
+
+      return {
+        ...current,
+        defaultTarget: target,
+        defaultModelSelection:
+          target?.kind === "model" ? target.selection : current.defaultModelSelection,
+        modelGroups: validatedConfig,
+      };
+    });
+  }
+
+  async setWorkloadDefault(
+    level: WorkloadLevel,
+    groupId: string | undefined,
+  ): Promise<ProviderConfigLayerSnapshot> {
+    return this.#updatePersonal((current) => {
+      const currentConfig = current.modelGroups ?? { ...DEFAULT_MODEL_GROUPS_CONFIG };
+      const nextWorkloadDefaults = { ...currentConfig.workloadDefaults };
+      if (groupId) {
+        nextWorkloadDefaults[level] = groupId;
+      } else {
+        delete nextWorkloadDefaults[level];
+      }
+
+      const nextConfig: ModelGroupsConfig = {
+        ...currentConfig,
+        revision: currentConfig.revision + 1,
+        workloadDefaults: nextWorkloadDefaults,
+      };
+
+      const validatedConfig = modelGroupsConfigSchema.parse(nextConfig);
+
+      return {
+        ...current,
+        modelGroups: validatedConfig,
+      };
+    });
+  }
+
   dispose(): void {
     if (this.#disposed) return;
     this.#disposed = true;
@@ -570,8 +861,10 @@ export class ProviderConfigService implements ProviderSource<ProviderConfigSnaps
   ): Promise<ProviderConfigLayerSnapshot> {
     this.#assertNotDisposed();
     return this.#personalRepository.update((current) => ({
-      // Provider/Model/排序只修改自己的成员，不能因共用文件清掉默认选择。
+      // Provider/Model/排序只修改自己的成员，不能因共用文件清掉默认选择与模型组配置。
       defaultModelSelection: current.defaultModelSelection,
+      defaultTarget: current.defaultTarget,
+      modelGroups: current.modelGroups,
       ...transform(current),
     }));
   }

@@ -118,6 +118,20 @@ export function resolveAppRuntimeConfig(input: {
     options.runtimeConfig?.subagents?.builtInModelSelectionOverrides ?? {};
   const runtimeConfig: AgentRuntimeConfig = {
     ...options.runtimeConfig,
+    // 模型组事实源的优先级：显式 runtimeConfig 覆盖（测试、自定义宿主）最优先，
+    // 其次是 app 级 live 源。放在展开运算符之后，runtimeConfig 的显式值才能赢。
+    ...(options.runtimeConfig?.modelGroupsConfig !== undefined
+      ? { modelGroupsConfig: options.runtimeConfig.modelGroupsConfig }
+      : options.modelGroupsConfig !== undefined
+        ? { modelGroupsConfig: options.modelGroupsConfig }
+        : {}),
+    // 执行目标同理：显式 runtimeConfig.executionTarget 赢，其次是环境默认目标
+    // （startup 读取的 configuredDefaultTarget）。
+    ...(options.runtimeConfig?.executionTarget !== undefined
+      ? { executionTarget: options.runtimeConfig.executionTarget }
+      : options.configuredDefaultTarget !== undefined
+        ? { executionTarget: options.configuredDefaultTarget }
+        : {}),
     genUiOutputRoot: (options.env ?? process.env)[GEN_UI_OUTPUT_ROOT_ENV],
     bashTimeoutPolicy:
       options.runtimeConfig?.bashTimeoutPolicy ??

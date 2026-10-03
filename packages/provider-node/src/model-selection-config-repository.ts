@@ -1,4 +1,5 @@
 import type { ModelSelection, PersonalProviderConfigRepository } from "@zcode/provider";
+import type { ExecutionTarget, ModelGroupsConfig } from "@zcode/shared/model-group-types";
 
 export interface NodeModelSelectionConfigRepositoryOptions {
   readonly personalRepository: PersonalProviderConfigRepository;
@@ -16,7 +17,29 @@ export class NodeModelSelectionConfigRepository {
 
   async read(): Promise<ModelSelection | undefined> {
     this.#assertNotDisposed();
-    return (await this.#personal.read()).defaultModelSelection;
+    const snapshot = await this.#personal.read();
+    // defaultTarget 是权威执行目标：组目标在场时必须按组路由（read() 没有具体
+    // 选择可返回），legacy defaultModelSelection 只作为缺省兼容字段，不能反过来
+    // 压过组目标（悬空一致性：设了组默认后 read() 仍路由到旧模型）。
+    if (snapshot.defaultTarget?.kind === "group") return undefined;
+    if (snapshot.defaultTarget?.kind === "model") return snapshot.defaultTarget.selection;
+    if (snapshot.defaultModelSelection) return snapshot.defaultModelSelection;
+    return undefined;
+  }
+
+  async readDefaultTarget(): Promise<ExecutionTarget | undefined> {
+    this.#assertNotDisposed();
+    const snapshot = await this.#personal.read();
+    if (snapshot.defaultTarget) return snapshot.defaultTarget;
+    if (snapshot.defaultModelSelection) {
+      return { kind: "model", selection: snapshot.defaultModelSelection };
+    }
+    return undefined;
+  }
+
+  async readModelGroupsConfig(): Promise<ModelGroupsConfig | undefined> {
+    this.#assertNotDisposed();
+    return (await this.#personal.read()).modelGroups;
   }
 
   async saveConfiguredDefault(
@@ -26,8 +49,29 @@ export class NodeModelSelectionConfigRepository {
     const snapshot = await this.#personal.update((current) => ({
       ...current,
       defaultModelSelection: selection,
+      defaultTarget: selection ? { kind: "model", selection } : undefined,
     }));
     return snapshot.defaultModelSelection;
+  }
+
+  async saveConfiguredDefaultTarget(
+    target: ExecutionTarget | undefined,
+  ): Promise<ExecutionTarget | undefined> {
+    this.#assertNotDisposed();
+    const snapshot = await this.#personal.update((current) => ({
+      ...current,
+      defaultTarget: target,
+      // 清除默认目标时必须同步清除 legacy 选择：readDefaultTarget() 在
+      // defaultTarget 缺失时回退 defaultModelSelection，保留旧值会让被清除的
+      // 默认选择复活并继续路由到旧模型（P1 悬空状态）。
+      defaultModelSelection:
+        target === undefined
+          ? undefined
+          : target.kind === "model"
+            ? target.selection
+            : current.defaultModelSelection,
+    }));
+    return snapshot.defaultTarget;
   }
 
   onDidChange(listener: (reason: string) => void): () => void {

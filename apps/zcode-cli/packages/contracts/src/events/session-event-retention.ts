@@ -5,6 +5,12 @@ import { SessionEventType } from "./session.events.js";
  * 与消息流同频的瞬态事件。
  * 它们仍经 event store 分配 seq 并交给 live sink，但 turn 结束并被下一 turn 取代后即可从内存淘汰：
  * 已完成 turn 的文本由持久化消息重新合成，reducer / rewind / fork / checkpoint 不消费这些类型。
+ *
+ * P2-5 保留裁定：SessionEventType.ModelGroupRouted（模型组路由：成员选择 / turn pin /
+ * failover）不进入本瞬态集--它与 ModelSelected 同属模型生命周期事实，每次逻辑请求
+ * 至多 maxMemberAttempts 条（≤32），频率与 ModelSelected 同量级；replay / 冷恢复需要
+ * 它重建组意图投影（v4 config.executionTarget），淘汰会让组会话在重放后丢失 requested
+ * target。因此本条目不添加它，保持默认保留语义。
  */
 export const TRANSIENT_SESSION_EVENT_TYPES: ReadonlySet<SessionEventType> = new Set([
   SessionEventType.ModelStreaming,

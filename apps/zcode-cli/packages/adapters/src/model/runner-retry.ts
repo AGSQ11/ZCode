@@ -2,7 +2,11 @@ import { ModelErrorCode, ModelFailureReason, type Logger } from "@zcode/contract
 import { isProviderBusinessError } from "./model-execution.js";
 import { findProviderBusinessError, type ClassifiedModelFailure } from "./failure-classifier.js";
 import { readMappedAiSdkProviderBusinessError } from "./failure-ai-sdk-provider-error.js";
-import { unwrapRetryError } from "./failure-inspection.js";
+import {
+  getResponseHeaders,
+  parseRetryAfterMsHeaderValue,
+  unwrapRetryError,
+} from "./failure-inspection.js";
 import {
   AiSdkModelAdapterError,
   ModelErrorSource,
@@ -12,7 +16,6 @@ import type { ResolvedAiSdkModelRetryOptions } from "./retry-policy.js";
 import { modelStatusContextToLogContext, type ModelStatusContext } from "./runner-status.js";
 import { modelFailureAttributionFields } from "./runner-telemetry.js";
 
-const MAX_REASONABLE_RETRY_AFTER_MS = 5 * 60_000;
 const RELIABLE_ATTRIBUTION_CONTEXT_KEYS = [
   "errorPhase",
   "exceptionKind",
@@ -42,10 +45,15 @@ export function calculateRetryDelay(
 ): number {
   const uncapped = retry.baseDelayMs * retry.backoffFactor ** Math.max(0, attempt - 1);
   const capped = Math.min(uncapped, retry.maxDelayMs);
-  // provider 会返回几十秒到数分钟的 retry-after；
-  // 旧 60s 上限会把合法限流等待退化为本地短退避。
-  if (isReasonableRetryAfterMs(retryAfterMs, uncapped)) {
-    return retryAfterMs;
+  // provider 会返回几十秒到数分钟甚至更长的 retry-after；spec（模型组 §10）要求
+  // 「不得给 provider 指示的合法等待设 60s 之类的时长上限，只对算术结果钳到安全整数」。
+  // 旧实现把 >5min 的合法限流等待退化为本地短退避，这里改为：有限且 ≥0 即照用。
+  // 但消费方是 setTimeout：Node/浏览器把 >2^31-1ms（约 24.8 天）的延迟钳到 1ms，
+  // 巨大/恶意 Retry-After 反而把等待缩到 1ms，与路由层尊重完整等待的语义背离--
+  // 钳到计时器安全上限（悬空溢出）。
+  if (retryAfterMs !== undefined && Number.isFinite(retryAfterMs) && retryAfterMs >= 0) {
+    const TIMER_SAFE_MAX_DELAY_MS = 2_147_483_647;
+    return Math.min(retryAfterMs, TIMER_SAFE_MAX_DELAY_MS);
   }
 
   if (!retry.jitter || capped === 0) {
@@ -117,6 +125,19 @@ export function toAdapterError(
   const unwrapped = unwrapRetryError(error);
   const providerBusinessError =
     findProviderBusinessError(unwrapped) ?? readMappedAiSdkProviderBusinessError(unwrapped);
+  // 分类器透传的 retryAfterMs 已被本地退避的口径筛过；错误上下文要忠实带出 provider 的
+  // Retry-After（workflow 配额停止靠它算 resetAt，group router 靠它算冷却），
+  // 缺省时回退到原始响应头的完整解析值，不能因为「不适合本地等待」而丢字段。
+  // x-should-retry: false 的抑制语义与分类器保持一致（failure-inspection.isShouldRetryHeaderFalse）。
+  const headers = getResponseHeaders(unwrapped);
+  const shouldRetry = headers
+    ? Object.entries(headers).find(([key]) => key.toLowerCase() === "x-should-retry")?.[1]
+    : undefined;
+  const shouldRetrySuppressed =
+    shouldRetry?.trim().toLowerCase() === "false" || shouldRetry?.trim().toLowerCase() === "0";
+  const retryAfterMs =
+    failure.retryAfterMs ??
+    (shouldRetrySuppressed ? undefined : parseRetryAfterMsHeaderValue(headers ?? {}));
   const normalizedContext = {
     attempt,
     maxAttempts: statusContext.maxAttempts,
@@ -131,7 +152,7 @@ export function toAdapterError(
     retryable: failure.retryable,
     // Retry-After 只活在分类结果里，离开 adapter 就丢了；workflow 的配额停止通知
     // 要靠它算 resetAt，所以随归一化上下文带出去。
-    ...(failure.retryAfterMs === undefined ? {} : { retryAfterMs: failure.retryAfterMs }),
+    ...(retryAfterMs === undefined ? {} : { retryAfterMs }),
     source: modelFailureSource(providerBusinessError ?? error, failure, additionalContext),
     statusCode: failure.statusCode,
     traceId: statusContext.traceId,
@@ -218,18 +239,6 @@ function modelFailureSource(
   }
 
   return ModelErrorSource.Provider;
-}
-
-function isReasonableRetryAfterMs(
-  value: number | undefined,
-  exponentialDelayMs: number,
-): value is number {
-  return (
-    value !== undefined &&
-    Number.isFinite(value) &&
-    value >= 0 &&
-    (value <= MAX_REASONABLE_RETRY_AFTER_MS || value < exponentialDelayMs)
-  );
 }
 
 function retryAfterSource(

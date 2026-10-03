@@ -80,6 +80,25 @@ async function switchModelConfig(
   const payload = envelope.payload as CommandPayloadMap["switchModelConfig"];
   const record = requireRecord(host, envelope.sessionId);
   return runSessionModelConfigMutation(record.app, async () => {
+    if (payload.executionTarget) {
+      // 先做可失败校验再写目标：提前 setSessionExecutionTarget 后任一后续步骤
+      // 抛错都会在持久会话上留下「目标已改、模型状态未配」的部分状态。
+      if (payload.executionTarget.kind === "group") {
+        record.app.runtime.setSessionExecutionTarget(payload.executionTarget);
+        return undefined;
+      }
+      // 具体模型目标：确认 provider 在当前 Environment Registry 可用后再写。
+      await ensureProviderClientReady(host, record.app.sessionId, payload.executionTarget.selection.providerId);
+      record.app.runtime.setSessionExecutionTarget(payload.executionTarget);
+      if (!payload.provider || !payload.model) {
+        return undefined;
+      }
+    }
+
+    if (!payload.provider || !payload.model) {
+      return undefined;
+    }
+
     // previous 必须在串行化临界区内、setModel 之前快照。registry fallback 可能排在本命令
     // 前面，若在排队前读取会拿到过期 previous，并让 noop/事件顺序与 runtime 真值分裂。
     const previousSelection = record.app.runtime.getSessionModelSelection();
@@ -94,13 +113,13 @@ async function switchModelConfig(
     const modelIdentityChanged =
       previousSelection?.providerId !== payload.provider ||
       previousSelection?.modelId !== payload.model;
-    const requestedThought = payload.thought.trim();
+    const requestedThought = (payload.thought ?? "").trim();
     const thoughtChanged =
       Boolean(requestedThought) && requestedThought !== previousSelection?.options?.reasoningLevel;
     // 同值切换收口：命中 runtime 当前值 → noop ACK（config.unchanged），
     // 不得以 accepted 静默吞掉--种子对齐后「UI 显示值 = runtime 真值」成立，
     // 客户端据此区分「已生效」与「本来就是这个值」。
-    if (!modelIdentityChanged && !thoughtChanged) {
+    if (!modelIdentityChanged && !thoughtChanged && !payload.executionTarget) {
       throw new V4CommandNoopError(CONFIG_UNCHANGED);
     }
     // setModel 前由当前 Environment Registry 确认目标 Provider 可用。
@@ -185,6 +204,12 @@ export async function applyRequestedSessionConfig(
   config: NonNullable<CommandPayloadMap["createSession"]["config"]>,
 ): Promise<void> {
   await runSessionModelConfigMutation(record.app, async () => {
+    // 执行目标写入必须落在串行化临界区内：提前到 mutation 外设置会让目标在
+    // 排队 mutation 未完成时已可见，且后续 model-config 失败留下目标已改、
+    // 模型状态未配的不一致（P1 串行化边界）。
+    if (config.executionTarget) {
+      record.app.runtime.setSessionExecutionTarget(config.executionTarget);
+    }
     const previousSelection = record.app.runtime.getSessionModelSelection();
     const previousModelSelection =
       previousSelection &&

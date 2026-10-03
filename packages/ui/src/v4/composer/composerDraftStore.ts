@@ -10,6 +10,7 @@
 // 与「v4 composer 不做附件草稿持久化」的裁决一致）。
 import { logger } from "@/logger.js";
 import { modelSelectionSchema, type ModelSelection } from "@zcode/shared";
+import { executionTargetSchema, type ExecutionTarget } from "@zcode/shared/model-group-types";
 import { submissionModeSchema, type SubmissionMode } from "@zcode/shared/zcode-protocol-v4";
 import type { ComposerMentionPrefill } from "@/store/zcodeSessionStoreTypes.js";
 
@@ -24,6 +25,7 @@ export interface V4ComposerDraft {
   lastPlanTransitionId?: string;
   lastPermissionGrantId?: string;
   modelSelection?: ModelSelection;
+  executionTarget?: ExecutionTarget;
   /** 会话级系统提示词覆盖；随草稿持久化，重载后由提交前屏障重新下发。 */
   systemPrompt?: string;
   /** 首次分享导入等待公共新任务初始化；不能由空 Session snapshot 抢先填充。 */
@@ -91,6 +93,15 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+// structuredClone 对含函数/原型对象会抛错；selection 是普通字面量，按形状克隆。
+function cloneModelSelectionValue(selection: ModelSelection): ModelSelection {
+  return {
+    providerId: selection.providerId,
+    modelId: selection.modelId,
+    ...(selection.options ? { options: { ...selection.options } } : {}),
+  };
+}
+
 function readDraft(value: unknown): V4ComposerDraft | null {
   if (!isRecord(value) || typeof value.text !== "string") return null;
   const mode = submissionModeSchema.safeParse(value.mode);
@@ -134,7 +145,31 @@ function readDraft(value: unknown): V4ComposerDraft | null {
     ...(typeof value.lastPlanTransitionId === "string"
       ? { lastPlanTransitionId: value.lastPlanTransitionId }
       : {}),
-    ...(modelSelection ? { modelSelection } : {}),
+    // executionTarget 为权威执行目标：组目标存在时丢弃陈旧 modelSelection，
+    // 防止仍读旧字段的消费者把请求路由回过期具体模型（P1 权威收敛）。
+    // model 目标存在时必须与 modelSelection 一致--以目标为准重写旧字段，
+    // 避免旧消费者读到与目标背离的具体模型（悬空一致性）。
+    // 解析失败不静默降级：返回 {} 丢弃整个草稿字段集合比把请求路由到旧模型安全。
+    ...(() => {
+      if (isRecord(value.executionTarget)) {
+        const parsed = executionTargetSchema.safeParse(value.executionTarget);
+        if (parsed.success) {
+          if (parsed.data.kind === "group") {
+            return { executionTarget: parsed.data };
+          }
+          return {
+            executionTarget: parsed.data,
+            modelSelection: cloneModelSelectionValue(parsed.data.selection),
+          };
+        }
+        // 解析失败：不读旧 modelSelection 作为权威，返回空目标让上层
+        // 明确落到未绑定态，而不是静默路由到过期模型。
+        return {};
+      }
+      return modelSelection
+        ? { modelSelection, executionTarget: { kind: "model" as const, selection: modelSelection } }
+        : {};
+    })(),
     ...(typeof value.systemPrompt === "string" && value.systemPrompt.trim()
       ? { systemPrompt: value.systemPrompt }
       : {}),

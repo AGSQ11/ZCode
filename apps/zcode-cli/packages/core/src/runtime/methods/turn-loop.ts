@@ -23,6 +23,11 @@ import {
 import type { AgentRuntimeInternal } from "../internal.js";
 import { runModelBackedTurnStep } from "./turn-model-step.js";
 import {
+  GROUP_TURN_ROUTING_STATE_KEY,
+  prepareRoutedAttempt,
+  readGroupTurnRouting,
+} from "./turn-model.js";
+import {
   AUTOMATION_MUTATION_TOOL_NAMES,
   evaluateRapidRefill,
   isAutomationMutationRestrictedTurn,
@@ -61,6 +66,57 @@ export async function runRegularTurnLoop(
       if (drainedRuntimeCommands.drained > 0) {
         state.repeatedToolCallSignature = undefined;
         state.repeatedToolCallStreakCount = 0;
+      }
+    }
+
+    // 组目标：每个新 model step 是一个独立的逻辑请求（spec §9：requestDeadlineMs
+    // 覆盖一个逻辑模型请求），必须在 step 边界重新路由--affinity='turn' 时
+    // prepareRoutedAttempt 经 reservePinnedMember 复用 turn pin（合格且有容量时），
+    // 否则按策略重选并把新成员写成新 pin；上一 step 的 lease 已在 step 内释放，
+    // 网络租约不跨 step 持有（spec §6：completed attempts release network leases）。
+    // output-token continuation 属于同一逻辑请求的延续，不重新路由。
+    // pendingStreamRecoveryRequest 在场表示 post-commit anchor recovery 即将用
+    // 当前 model 重发：此时不换成员，保持与直接模型一致的同模型恢复语义
+    // （跨成员 committed-anchor recovery 需要 spec §11 的额外保证，见遗留说明）。
+    const activeGroupRouting = readGroupTurnRouting(state);
+    if (
+      state.modelStepCount > 0 &&
+      !outputTokenRecoveryActive &&
+      activeGroupRouting &&
+      !state.pendingStreamRecoveryRequest
+    ) {
+      const prepared = await prepareRoutedAttempt(this, {
+        traceContext: state.turnTraceContext,
+        requestDependencies: activeGroupRouting.requestDependencies,
+        signal: state.turnAbortSignal,
+      });
+      if (prepared.group) {
+        // 上一步遗留租约在替换路由状态前必须释放：异常路径可能跳过 in-step
+        // finally 释放，直接覆盖会把成员容量永久泄漏（悬空租约）。
+        activeGroupRouting.activeReservation?.release("neutral");
+        state.model = prepared.model;
+        (state as unknown as Record<string, unknown>)[GROUP_TURN_ROUTING_STATE_KEY] = {
+          requestStartedAtMs: Date.now(),
+          deadlineAtMs: prepared.deadlineMs ?? Number.MAX_SAFE_INTEGER,
+          attemptsUsed: 1,
+          maxAttempts: prepared.maxAttempts ?? 1,
+          attemptedMemberIds: new Set(prepared.memberId ? [prepared.memberId] : []),
+          ...(prepared.reservation ? { activeReservation: prepared.reservation } : {}),
+          ...(prepared.memberId ? { activeMemberId: prepared.memberId } : {}),
+          ...(activeGroupRouting.requestDependencies
+            ? { requestDependencies: activeGroupRouting.requestDependencies }
+            : {}),
+          // failover 重选必须使用请求起点冻结的组快照，不能在 attempt 间
+          // 重新解析实时配置（中途改配置只影响下一逻辑请求）。
+          frozenGroup: prepared.group,
+          failoverEnabled: prepared.group.failover.enabled,
+        };
+      } else {
+        // 重路由返回直接模型（组已删除或目标已改为具体模型）：清除旧组路由状态，
+        // 否则上一逻辑请求的 deadline/租约残留会错误约束新请求（悬空状态）。
+        activeGroupRouting.activeReservation?.release("neutral");
+        state.model = prepared.model;
+        delete (state as unknown as Record<string, unknown>)[GROUP_TURN_ROUTING_STATE_KEY];
       }
     }
 
@@ -233,7 +289,7 @@ function buildTurnDisallowedTools(state: RegularTurnLoopState): Set<string> | nu
   }
   if (isOffPeakCreateRestrictedTurn(state)) {
     // 闲时执行轮禁止再创建闲时任务（防递归自我派生）；OffPeakList 只读保留。
-    // 注意 automation 执行轮不进此分支——cron turn 放行 OffPeakCreate。
+    // 注意 automation 执行轮不进此分支--cron turn 放行 OffPeakCreate。
     for (const toolName of OFF_PEAK_MUTATION_TOOL_NAMES) {
       tools.add(toolName);
     }

@@ -41,6 +41,7 @@ export const ModelRequestSessionType = {
 export const ModelRetryBudget = {
   Default: "default",
   Unbounded: "unbounded",
+  SinglePhysicalAttempt: "single_physical_attempt",
 } as const;
 
 export type ModelRetryBudget = (typeof ModelRetryBudget)[keyof typeof ModelRetryBudget];
@@ -61,14 +62,14 @@ export interface ModelRequestAdmissionTicket extends ModelStatusSink {
 /**
  * 模型请求的准入端口（runtime-only）。runner 在**每一次尝试发出前**先试同步快路径
  * `tryAcquire`，未命中再 `acquire` 排队；拿到票据后才发请求；尝试结束即 `release`，退避 sleep 期间
- * 不持票——所以进程级并发 cap 约束的是 provider 真正看到的在飞请求数。`signal` 被 abort 时
+ * 不持票--所以进程级并发 cap 约束的是 provider 真正看到的在飞请求数。`signal` 被 abort 时
  * `acquire` 以 `signal.reason` reject。
  *
  * `tryAcquire` 未命中是 runner 发 `model_request_queued` / `model_request_admitted` 的唯一依据
  * 没有快路径的实现 runner 无法分辨「排了队」与「立即放行」，一律不发这两条事件。
  *
- * 端口绑定在 runtime 的模型工厂上：runtime 交出的每一个模型句柄——turn step、工具内部
- * 的模型调用、压缩、标题 sidecar——都带它；缺席即不设闸门（runner 行为逐字不变）。主代理拿的是
+ * 端口绑定在 runtime 的模型工厂上：runtime 交出的每一个模型句柄--turn step、工具内部
+ * 的模型调用、压缩、标题 sidecar--都带它；缺席即不设闸门（runner 行为逐字不变）。主代理拿的是
  * 治理器的 observer 实现：`tryAcquire` 总命中、只喂信号。
  */
 export interface ModelRequestAdmission {
@@ -82,7 +83,7 @@ export interface ModelRequestAdmission {
 
 /**
  * 准入端口看到的模型身份：配额键的最小事实。既不是 Selection（那是执行意图），也不是
- * Active Model（那带完整配置）——treaty 只要 provider/model 两段。
+ * Active Model（那带完整配置）--treaty 只要 provider/model 两段。
  */
 export interface ModelRequestTarget {
   providerId: string;
@@ -194,8 +195,8 @@ export interface ModelRequestStartedStatusEvent extends ModelNetworkStatusBase {
 
 /**
  * 准入等待的两端：runner 的 `tryAcquire` 未命中
- * 即发 `queued`，拿到票即发 `admitted`（带排队时长）。它们是 runtime 观测——driver 据此报「等待槽位」，
- * 工具执行器据此暂停工具超时——不进 provider 请求；协议侧凡枚举状态类型的消费方显式忽略。
+ * 即发 `queued`，拿到票即发 `admitted`（带排队时长）。它们是 runtime 观测--driver 据此报「等待槽位」，
+ * 工具执行器据此暂停工具超时--不进 provider 请求；协议侧凡枚举状态类型的消费方显式忽略。
  */
 export interface ModelRequestQueuedStatusEvent extends ModelNetworkStatusBase {
   type: "model_request_queued";

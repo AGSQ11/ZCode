@@ -169,6 +169,23 @@ function cloneModelSelection(
   };
 }
 
+function cloneExecutionTarget(
+  target: ReturnType<ZCodeProtocolSessionRecord["app"]["runtime"]["getSessionExecutionTarget"]>,
+): typeof target {
+  if (!target) return undefined;
+  if (target.kind === "model") {
+    return {
+      kind: "model",
+      selection: {
+        providerId: target.selection.providerId,
+        modelId: target.selection.modelId,
+        ...(target.selection.options ? { options: { ...target.selection.options } } : {}),
+      },
+    };
+  }
+  return { kind: "group", groupId: target.groupId };
+}
+
 async function readConversationFileChanges(
   record: ZCodeProtocolSessionRecord,
   sessionId: string,
@@ -1508,6 +1525,16 @@ export function createConversationV4Gateway(
         record.app.runtime.getSessionModelSelection() ?? record.restoredModelSelection;
       return {
         modelSelection: cloneModelSelection(selection),
+        // P1-5 修复：种子必须携带结构化执行目标（组意图），否则 createSession.config /
+        // switchModelConfig 写入 runtime 的 group target 永远进不了 v4 快照的
+        // config.executionTarget--投影 seedConfig 只填事件未触碰的字段，种子是唯一通道。
+        executionTarget: (() => {
+          const target = record.app.runtime.getSessionExecutionTarget();
+          // 种子必须克隆：runtime 的 live target 是可变引用，直接别名进快照会让
+          // 后续运行时内修改静默穿透 v4 seed（悬空共享状态）。用 cloneExecutionTarget
+          // 而非 structuredClone--后者对含函数/原型对象会抛错或丢原型。
+          return target ? cloneExecutionTarget(target) : undefined;
+        })(),
         provider: selection?.providerId ?? "",
         model: selection?.modelId ?? "",
         thought: selection?.options?.reasoningLevel ?? "",

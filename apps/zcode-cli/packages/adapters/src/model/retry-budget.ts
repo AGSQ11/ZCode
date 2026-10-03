@@ -15,28 +15,35 @@ export function isUnboundedRetryBudget(budget: ModelRetryBudget | undefined): bo
   return budget === ModelRetryBudget.Unbounded;
 }
 
-/** 失败之后还允许再试一次吗（等价于既有的 `retryBudgetAttempt < maxAttempts`，unbounded 恒真）。 */
+export function isSinglePhysicalAttemptBudget(budget: ModelRetryBudget | undefined): boolean {
+  return budget === ModelRetryBudget.SinglePhysicalAttempt;
+}
+
+/** 失败之后还允许再试一次吗（等价于既有的 `retryBudgetAttempt < maxAttempts`，unbounded 恒真，single 恒假）。 */
 export function retryBudgetAllows(
   budget: ModelRetryBudget | undefined,
   retryBudgetAttempt: number,
   maxAttempts: number,
 ): boolean {
+  if (isSinglePhysicalAttemptBudget(budget)) return false;
   return isUnboundedRetryBudget(budget) || retryBudgetAttempt < maxAttempts;
 }
 
-/** attempt 循环的继续条件（等价于既有的 `attempt <= loopMaxAttempts`，unbounded 恒真）。 */
+/** attempt 循环的继续条件（等价于既有的 `attempt <= loopMaxAttempts`，unbounded 恒真，single 仅允许 attempt 1）。 */
 export function retryAttemptLoopContinues(
   budget: ModelRetryBudget | undefined,
   attempt: number,
   loopMaxAttempts: number,
 ): boolean {
+  if (isSinglePhysicalAttemptBudget(budget)) return attempt <= 1;
   return isUnboundedRetryBudget(budget) || attempt <= loopMaxAttempts;
 }
 
-/** 写进状态事件 / 日志的 maxAttempts：unbounded 下是哨兵 0。 */
+/** 写进状态事件 / 日志的 maxAttempts：unbounded 下是哨兵 0，single 下是 1。 */
 export function retryBudgetMaxAttempts(
   budget: ModelRetryBudget | undefined,
   maxAttempts: number,
 ): number {
+  if (isSinglePhysicalAttemptBudget(budget)) return 1;
   return isUnboundedRetryBudget(budget) ? UNBOUNDED_RETRY_MAX_ATTEMPTS : maxAttempts;
 }

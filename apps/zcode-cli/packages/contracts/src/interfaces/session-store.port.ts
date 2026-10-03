@@ -803,6 +803,7 @@ export const SESSION_ENTRY_TARGET_COMPLETION_VERIFICATION =
   "target_completion_verification" as const;
 export const SESSION_ENTRY_BASH_SHELL_SELECTION = "runtime/bash_shell_selection" as const;
 export const SESSION_ENTRY_MODEL_SELECTION = "runtime/model_selection" as const;
+export const SESSION_ENTRY_EXECUTION_TARGET = "runtime/execution_target" as const;
 export const SESSION_ENTRY_EXECUTION_STATE = "runtime/execution_state" as const;
 export const SESSION_ENTRY_USER_INPUT_AUTO_RESOLUTION =
   "runtime/user_input_auto_resolution" as const;
@@ -826,7 +827,7 @@ export interface SessionEntryInfo {
   sessionID: SessionId;
   type: SessionEntryType | string;
   // session entry 既承载用户/工具活动，也承载 session-local 配置快照。
-  // 配置恢复或切换只应更新 entry 自己的版本，不能把任务活动时间伪装成“刚刚”。
+  // 配置恢复或切换只应更新 entry 自己的版本，不能把任务活动时间伪装成"刚刚"。
   touchSession?: boolean;
   time: {
     created: number;
@@ -845,7 +846,7 @@ export interface SessionEntryInfo {
 // transcript user message，与消息持久化同事务）/ cancelled（用户删除队列项等）/
 // discarded（session_resumed=重启不保留队列；user_cleared=heldQueue 清空发送）/
 // failed（已接受但运行时无法启动；保留终态，重启时禁止再改写成 discarded）。
-// id = input/command id（admission 时即存在）；promoted_message_id 是 nullable 外键——
+// id = input/command id（admission 时即存在）；promoted_message_id 是 nullable 外键--
 // messageId 在 drain 时才生成。startNow 也必须先经过 durable admission：即使 CLI 在 ACK 后、
 // user message 原子 promotion 前崩溃，恢复端也能把输入明确标成 discarded。
 export type SessionInputDelivery = "startNow" | "guide" | "queue";
@@ -1161,7 +1162,7 @@ export interface SessionStorePort {
   }): Promise<void>;
   /**
    * promotion（原子性硬要求）：账本置 promoted + user message/parts
-   * 持久化在同一事务——杜绝「queue 已消费但 transcript 无 user message」的孤儿窗口。
+   * 持久化在同一事务--杜绝「queue 已消费但 transcript 无 user message」的孤儿窗口。
    */
   promoteSessionInput?(input: {
     id: string;

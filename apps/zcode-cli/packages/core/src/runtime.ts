@@ -1,4 +1,13 @@
 export { AgentRuntime } from "./runtime/agent-runtime.js";
+// ModelGroupRouter 是 bootstrap 注入 AgentRuntime deps 的值级依赖；经 core
+// 公开入口导出，bootstrap 才能用公共路径实例化，不引用 runtime 内部文件。
+export { ModelGroupRouter } from "./runtime/model-group-router.js";
+export type {
+  ModelGroupRouterOptions,
+  ReservationLease,
+  RoutedAttempt,
+  CandidateRejection,
+} from "./runtime/model-group-router.js";
 export type {
   WorkspaceGenerateTextInput,
   WorkspaceGenerateTextResult,

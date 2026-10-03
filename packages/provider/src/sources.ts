@@ -6,6 +6,7 @@ import {
   type ModelConfigRules,
 } from "./config/index.js";
 import type { AccountProviderStates } from "./account-provider-state.js";
+import type { ExecutionTarget, ModelGroupsConfig } from "@zcode/shared/model-group-types";
 
 export interface ProviderSource<TSnapshot> {
   read(): Promise<TSnapshot>;
@@ -22,6 +23,8 @@ export interface ProviderConfigSnapshot {
   readonly zcodeBuiltinModelRules: ModelConfigRules;
   readonly personalModels: ModelConfigRules;
   readonly personalProviderOrder?: readonly string[];
+  readonly personalDefaultTarget?: ExecutionTarget;
+  readonly personalModelGroups?: ModelGroupsConfig;
 }
 
 export interface AccountProviderConfigSnapshot {

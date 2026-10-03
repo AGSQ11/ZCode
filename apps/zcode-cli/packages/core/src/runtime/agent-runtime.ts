@@ -126,7 +126,7 @@ import { projectPersistentAgentMemoryTools } from "../subagent/persistent-memory
 import { RuntimeTelemetryFacade } from "../telemetry/runtime-telemetry.js";
 import type { WorkspaceHookRuntimeAdmissionPort } from "../hooks/workspace-hook-runtime-admission.js";
 import { disposeNodeReplSession } from "../tool/handlers/node-repl.js";
-import { cloneModelSelection } from "./model-selection.js";
+import { cloneExecutionTarget, cloneModelSelection } from "./model-selection.js";
 
 // oxlint-disable typescript-eslint/no-unsafe-declaration-merging
 export class AgentRuntime {
@@ -178,6 +178,9 @@ export class AgentRuntime {
   private subagentPort?: SubagentPort;
   private dynamicWorkflowRunPort?: DynamicWorkflowRunPort;
   private modelCatalogPort?: ModelCatalogPort;
+  private modelGroupRouter?: import("./model-group-router.js").ModelGroupRouter;
+  private sessionExecutionTarget?: import("@zcode/shared/model-group-types").ExecutionTarget;
+  private turnPinnedMemberId?: string;
   private runtimeTaskRegistry: RuntimeTaskRegistry;
   private branchGeneration = 0;
   private artifactStore?: ToolArtifactStorePort;
@@ -276,6 +279,14 @@ export class AgentRuntime {
     this.providerRuntimeHeadersPort = deps.providerRuntimeHeadersPort;
     this.browserControlPort = deps.browserControlPort;
     this.modelRequestAdmission = deps.modelRequestAdmission;
+    this.modelGroupRouter = deps.modelGroupRouter;
+    // executionTarget 按形状显式克隆（cloneExecutionTarget）：与 cloneModelSelection
+    // 同一防御语义，避免 structuredClone 对含函数/原型对象抛错或丢原型。
+    this.sessionExecutionTarget = config.executionTarget
+      ? cloneExecutionTarget(config.executionTarget)
+      : undefined;
+    // 模型组配置的读取点是 methods/turn-model.ts 的 runtime.config.modelGroupsConfig
+    // （函数或快照均可，由该处消费时解析），ctor 不做二次拷贝。
     // 旧会话的选择缺失不能阻断历史恢复；不在这里制造默认模型。
     this.sessionModelSelection =
       config.modelSelection && cloneModelSelection(config.modelSelection);
@@ -361,6 +372,8 @@ export interface AgentRuntime {
   ): Promise<void>;
   getSessionModelSelection(): ModelSelection | undefined;
   setSessionModelSelection(selection: ModelSelection | undefined): void;
+  getSessionExecutionTarget(): import("@zcode/shared/model-group-types").ExecutionTarget | undefined;
+  setSessionExecutionTarget(target: import("@zcode/shared/model-group-types").ExecutionTarget | undefined): void;
   getProjectId(): ProjectId;
   ensureSessionPersistedForExternalActivity(
     input: string,
@@ -483,6 +496,10 @@ export interface AgentRuntime {
     origin?: ModelSelectionOrigin;
     supportedThoughtLevels?: readonly string[];
     traceContext?: TraceContext;
+  }): Promise<void>;
+  emitModelGroupRouted(options: {
+    payload: import("@zcode/contracts").ModelGroupRoutedPayload;
+    traceContext: TraceContext;
   }): Promise<void>;
   /** v4 switchCollaborationMode：协作模式切换后补发 SessionModeChanged（config.mode 投影）。 */
   emitModeChanged(options: {

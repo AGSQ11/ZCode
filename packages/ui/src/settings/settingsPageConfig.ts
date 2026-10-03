@@ -19,6 +19,7 @@ import {
   Keyboard,
   FileSearch,
   Activity,
+  Layers,
 } from "lucide-react";
 import { isSettingsSectionEnabled, type SettingsSectionId } from "@/lib/settingsNavigation.js";
 import type { Theme } from "@/useTheme.js";
@@ -72,6 +73,12 @@ const BASE_SETTINGS_SECTIONS: SettingsSectionDefinition[] = [
     id: "modelProvider",
     icon: Package,
     titleId: "settings.modelProviderTitle",
+    groupId: "basics",
+  },
+  {
+    id: "modelGroups",
+    icon: Layers,
+    titleId: "settings.modelGroups.title",
     groupId: "basics",
   },
   {

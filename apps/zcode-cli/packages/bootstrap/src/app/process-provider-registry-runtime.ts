@@ -145,6 +145,8 @@ export async function startProcessProviderRegistryRuntime(
     });
     try {
       const configuredDefaultModelSelection = await modelSelectionConfigRepository.read();
+      const configuredDefaultTarget = await modelSelectionConfigRepository.readDefaultTarget();
+      const modelGroupsConfig = await modelSelectionConfigRepository.readModelGroupsConfig();
       return Object.freeze({
         accountSource: standaloneAccount ?? accountSource,
         async syncAccountProviderConfig(next: AccountProviderConfigSnapshot): Promise<boolean> {
@@ -175,6 +177,8 @@ export async function startProcessProviderRegistryRuntime(
         snapshot,
         modelSelectionConfigRepository,
         configuredDefaultModelSelection,
+        configuredDefaultTarget,
+        modelGroupsConfig,
       });
     } catch (error) {
       disposeCredentialSubscription?.();
