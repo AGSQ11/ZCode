@@ -2,7 +2,10 @@ import type { ConfigResult } from "@zcode/adapters/config";
 import { GEN_UI_OUTPUT_ROOT_ENV } from "@zcode/shared/node";
 import { resolveInitialModelSelection, type ModelSelectionOptions } from "@zcode/provider";
 import { resolveBashTimeoutPolicy, type AgentProfile, type AgentRuntimeConfig } from "@zcode/core";
-import { type BuiltInSubagentModelSelectionOverrides } from "@zcode/shared";
+import {
+  type BuiltInSubagentModelGroupOverrides,
+  type BuiltInSubagentModelSelectionOverrides,
+} from "@zcode/shared";
 import {
   type CollaborationMode,
   type HookConfigSource,
@@ -38,6 +41,7 @@ export function resolveAppRuntimeConfig(input: {
   persistedMode?: CollaborationMode;
   builtInMcpServers?: Record<string, McpServerConfig>;
   builtInSubagentModelSelectionOverrides?: BuiltInSubagentModelSelectionOverrides;
+  builtInSubagentModelGroupOverrides?: BuiltInSubagentModelGroupOverrides;
   pluginHooks?: Partial<Record<HookEventName, HookMatcherConfig[]>>;
   pluginMcpServers?: Record<string, McpServerConfig>;
   pluginRuntimeFeatures?: AgentRuntimeConfig["runtimeFeatures"];
@@ -116,6 +120,15 @@ export function resolveAppRuntimeConfig(input: {
   );
   const runtimeBuiltInModelSelectionOverrides =
     options.runtimeConfig?.subagents?.builtInModelSelectionOverrides ?? {};
+  const runtimeBuiltInModelGroupOverrides =
+    options.runtimeConfig?.subagents?.builtInModelGroupOverrides ?? {};
+  // 显式 runtimeConfig 覆盖优先于存储：宿主显式给出的单模型覆盖必须压过磁盘上的同名组覆盖，
+  // 否则 normalizeAgentProfiles 的「组优先」会让存储值反超显式值。
+  const storedBuiltInModelGroupOverrides = Object.fromEntries(
+    Object.entries(input.builtInSubagentModelGroupOverrides ?? {}).filter(
+      ([name]) => !Object.hasOwn(runtimeBuiltInModelSelectionOverrides, name),
+    ),
+  ) as BuiltInSubagentModelGroupOverrides;
   const runtimeConfig: AgentRuntimeConfig = {
     ...options.runtimeConfig,
     // 模型组事实源的优先级：显式 runtimeConfig 覆盖（测试、自定义宿主）最优先，
@@ -188,6 +201,10 @@ export function resolveAppRuntimeConfig(input: {
       builtInModelSelectionOverrides: {
         ...(input.builtInSubagentModelSelectionOverrides ?? {}),
         ...runtimeBuiltInModelSelectionOverrides,
+      },
+      builtInModelGroupOverrides: {
+        ...storedBuiltInModelGroupOverrides,
+        ...runtimeBuiltInModelGroupOverrides,
       },
       profiles: [...(options.runtimeConfig?.subagents?.profiles ?? []), ...subagentProfiles],
     },

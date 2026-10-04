@@ -120,6 +120,7 @@ export interface ExploreSubagentPortOptions {
   builtInModelSelectionOverrides?: Partial<
     Record<"general-purpose" | "Explore", import("@zcode/shared").ModelSelection>
   >;
+  builtInModelGroupOverrides?: Partial<Record<"general-purpose" | "Explore", string>>;
   runtimeTaskRegistry?: RuntimeTaskRegistry;
   createAgentId?: () => string;
   getAllowedTools?: (profile: AgentProfile) => readonly string[];
@@ -134,6 +135,7 @@ export function createExploreSubagentPort(options: ExploreSubagentPortOptions): 
   const borrowedForegroundAgentIds = new Set<string>();
   const profiles = normalizeAgentProfiles(options.profiles ?? [], {
     builtInModelSelectionOverrides: options.builtInModelSelectionOverrides,
+    builtInModelGroupOverrides: options.builtInModelGroupOverrides,
   });
   const autoBackgroundMs = normalizeAutoBackgroundMs(options.autoBackgroundMs);
 

@@ -2,7 +2,9 @@ import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import {
   createAgentStateId,
   parseSubagentMarkdownSelection,
+  parseSubagentMarkdownGroupId,
   formatSubagentMarkdownModel,
+  formatSubagentMarkdownGroup,
   type AgentColor,
   type AgentDiagnostic,
   type AgentPermissionMode,
@@ -64,6 +66,7 @@ export function parseSubagentMarkdown(
 
   const source = input.scope === "built-in" ? "built-in" : "user";
   const modelSelection = parseSubagentMarkdownSelection(frontmatter);
+  const modelGroupId = parseSubagentMarkdownGroupId(frontmatter);
   const color = normalizeEnum(frontmatter.color, VALID_COLORS);
   const permissionMode = normalizeEnum(frontmatter.permissionMode, VALID_PERMISSION_MODES);
   const maxTurns = normalizePositiveInteger(frontmatter.maxTurns);
@@ -82,6 +85,7 @@ export function parseSubagentMarkdown(
       systemPrompt: parsed.body.trim(),
       ...(color ? { color } : {}),
       ...(modelSelection ? { modelSelection } : {}),
+      ...(modelGroupId ? { modelGroupId } : {}),
       ...(tools ? { tools } : {}),
       ...(disallowedTools ? { disallowedTools } : {}),
       ...(skills ? { skills } : {}),
@@ -108,7 +112,10 @@ export function serializeSubagentMarkdown(config: SubAgentConfig): string {
     `description: "${escapeYamlString(config.description)}"`,
   ];
   appendScalar(frontmatterLines, "color", config.color);
-  if (config.modelSelection) {
+  // 组意图写作 `model: group:<id>`，不带 thoughtLevel（成员各自携带档位）；与单模型互斥。
+  if (config.modelGroupId?.trim()) {
+    appendScalar(frontmatterLines, "model", formatSubagentMarkdownGroup(config.modelGroupId));
+  } else if (config.modelSelection) {
     appendScalar(frontmatterLines, "model", formatSubagentMarkdownModel(config.modelSelection));
     appendScalar(frontmatterLines, "thoughtLevel", config.modelSelection.options?.reasoningLevel);
   }

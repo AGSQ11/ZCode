@@ -5,12 +5,20 @@ import { formatExploreAllowedToolsForAgentDescription } from "./explore-tools.js
 import { parseAgentFrontmatter, splitMarkdownFrontmatter } from "./profile-frontmatter.js";
 import { filterSubagentChildToolNames } from "./tool-policy.js";
 import type { ModelSelection } from "@zcode/shared";
-import { resolveProfileModelSelection } from "./profile-model-selection.js";
+import {
+  resolveProfileModelGroupId,
+  resolveProfileModelSelection,
+} from "./profile-model-selection.js";
 
 export const DEFAULT_SUBAGENT_TYPE = GENERAL_PURPOSE_AGENT_TYPE;
 
 export type BuiltInSubagentModelSelectionOverrides = Partial<
   Record<typeof DEFAULT_SUBAGENT_TYPE | typeof EXPLORE_AGENT_TYPE, ModelSelection>
+>;
+
+/** 内置 subagent 的模型组覆盖（组 id）；与 ModelSelection 覆盖并存时组优先。 */
+export type BuiltInSubagentModelGroupOverrides = Partial<
+  Record<typeof DEFAULT_SUBAGENT_TYPE | typeof EXPLORE_AGENT_TYPE, string>
 >;
 
 export type AgentPermissionMode = "auto" | "plan";
@@ -27,6 +35,8 @@ export interface AgentProfile {
   maxTurns?: number;
   mcpServers?: readonly string[];
   memory?: AgentMemoryScope;
+  /** 模型组意图（组 id）；存在时不带 modelSelection，两者互斥。 */
+  modelGroupId?: string;
   modelSelection?: ModelSelection;
   name: string;
   path?: string;
@@ -63,8 +73,17 @@ const VALID_PERMISSION_MODES = new Set<AgentPermissionMode>(["auto", "plan"]);
 
 const VALID_MEMORY_SCOPES = new Set<AgentMemoryScope>(["user", "project", "local"]);
 
+/** 内置 profile 的模型意图投影：组优先，组存在时丢弃同名单模型覆盖。 */
+function builtInModelIntent(options: {
+  modelSelection?: ModelSelection;
+  modelGroupId?: string;
+}): Pick<AgentProfile, "modelGroupId" | "modelSelection"> {
+  if (options.modelGroupId) return { modelGroupId: options.modelGroupId };
+  return options.modelSelection ? { modelSelection: options.modelSelection } : {};
+}
+
 export function createBuiltInExploreAgentProfile(
-  options: { modelSelection?: ModelSelection } = {},
+  options: { modelSelection?: ModelSelection; modelGroupId?: string } = {},
 ): AgentProfile {
   return {
     name: EXPLORE_AGENT_TYPE,
@@ -72,7 +91,7 @@ export function createBuiltInExploreAgentProfile(
       'Read-only search agent for broad fan-out searches - when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn\'t review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions.',
     color: "cyan",
     injectAgentsMd: false,
-    ...(options.modelSelection ? { modelSelection: options.modelSelection } : {}),
+    ...builtInModelIntent(options),
     source: "built-in",
     systemPrompt: "",
     tools: ["Bash", "Glob", "Grep", "Read", "WebFetch", "WebSearch", "TodoWrite"],
@@ -90,20 +109,24 @@ export function normalizeAgentProfiles(
   profiles: readonly AgentProfile[],
   options: {
     builtInModelSelectionOverrides?: BuiltInSubagentModelSelectionOverrides;
+    builtInModelGroupOverrides?: BuiltInSubagentModelGroupOverrides;
   } = {},
 ): AgentProfile[] {
   const overrides = options.builtInModelSelectionOverrides ?? {};
+  const groupOverrides = options.builtInModelGroupOverrides ?? {};
   const active = new Map<string, AgentProfile>();
   active.set(
     DEFAULT_SUBAGENT_TYPE,
     createBuiltInGeneralPurposeAgentProfile({
       modelSelection: overrides[DEFAULT_SUBAGENT_TYPE],
+      modelGroupId: groupOverrides[DEFAULT_SUBAGENT_TYPE],
     }),
   );
   active.set(
     EXPLORE_AGENT_TYPE,
     createBuiltInExploreAgentProfile({
       modelSelection: overrides[EXPLORE_AGENT_TYPE],
+      modelGroupId: groupOverrides[EXPLORE_AGENT_TYPE],
     }),
   );
   for (const profile of profiles) {
@@ -113,7 +136,7 @@ export function normalizeAgentProfiles(
 }
 
 export function createBuiltInGeneralPurposeAgentProfile(
-  options: { modelSelection?: ModelSelection } = {},
+  options: { modelSelection?: ModelSelection; modelGroupId?: string } = {},
 ): AgentProfile {
   return {
     name: DEFAULT_SUBAGENT_TYPE,
@@ -122,7 +145,7 @@ export function createBuiltInGeneralPurposeAgentProfile(
     // 内置子智能体使用显式身份色，避免 UI 按名称 hash 后把 general-purpose 显示为红色。
     color: "blue",
     injectAgentsMd: true,
-    ...(options.modelSelection ? { modelSelection: options.modelSelection } : {}),
+    ...builtInModelIntent(options),
     source: "built-in",
     systemPrompt: buildGeneralPurposeSystemPrompt(),
     tools: ["*"],
@@ -178,6 +201,7 @@ export function parseAgentProfileFromMarkdown(input: {
   }
 
   const modelSelection = resolveProfileModelSelection(frontmatter);
+  const modelGroupId = resolveProfileModelGroupId(frontmatter);
   const color = normalizeColor(scalarString(frontmatter.color));
   const parsedPermissionMode = normalizePermissionMode(scalarString(frontmatter.permissionMode));
   // 项目级 subagent markdown 属于仓库输入，不能通过 frontmatter 把
@@ -212,6 +236,7 @@ export function parseAgentProfileFromMarkdown(input: {
       systemPrompt: parsed.body.trim(),
       ...(input.path ? { path: input.path } : {}),
       ...(modelSelection ? { modelSelection } : {}),
+      ...(modelGroupId ? { modelGroupId } : {}),
       ...(color ? { color } : {}),
       ...(permissionMode ? { permissionMode } : {}),
       ...(maxTurns ? { maxTurns } : {}),

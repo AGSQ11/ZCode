@@ -42,7 +42,6 @@ import type {
   SessionModelTransition,
   V4ConversationFileChangesResult,
 } from "@zcode/shared/zcode-protocol-v4";
-import type { ModelGroup, ModelGroupsConfig } from "@zcode/shared/model-group-types";
 import { logger } from "@/logger.js";
 import { PluginUiSessionProvider } from "@/plugin-ui/index.js";
 import {
@@ -66,6 +65,7 @@ import { WORKSPACE_FILE_DRAG_MIME } from "@/lib/workspaceFileDrag.js";
 import { buildChatSessionScrollMemoryKey } from "@/lib/chatSessionScrollMemory.js";
 import type { MessageFileLinkTarget } from "@/components/ai-elements/message.js";
 import { useServices } from "@/hooks/useServices.js";
+import { useEnabledModelGroups } from "@/hooks/useEnabledModelGroups.js";
 import { useOptionalPlatform } from "@/hooks/usePlatform.js";
 import type { SessionOpenTrigger } from "@/lib/sessionOpenArmsTelemetry.js";
 import { useDynamicWorkflowAvailability } from "@/hooks/useDynamicWorkflowAvailability.js";
@@ -1267,33 +1267,7 @@ export function SessionPane({
     modelSelectionRead.state.status === "ready" ? modelSelectionRead.state.view : null;
   // Composer 模型菜单的「Model groups」目录：只暴露 enabled 组；权威事实来自
   // 目标 Host 的 modelGroupsService，菜单不自行缓存或推断。
-  const [enabledModelGroups, setEnabledModelGroups] = useState<ModelGroup[]>([]);
-  useEffect(() => {
-    // 服务实例切换或读取失败时必须清空旧状态：保留上一服务的组会把失效
-    // 目标留在菜单里，选中后路由到已不存在的组（悬空状态）。
-    setEnabledModelGroups([]);
-    if (!modelGroupsService) {
-      return undefined;
-    }
-    let disposed = false;
-    const apply = (config: ModelGroupsConfig) => {
-      if (!disposed) setEnabledModelGroups(config.groups.filter((group) => group.enabled));
-    };
-    void modelGroupsService
-      .getConfig()
-      .then(apply)
-      .catch((error) => {
-        logger.warn("[v4-pane] model groups 目录加载失败", {
-          error: error instanceof Error ? error.message : String(error),
-        });
-        if (!disposed) setEnabledModelGroups([]);
-      });
-    const subscription = modelGroupsService.onDidChange(apply);
-    return () => {
-      disposed = true;
-      subscription.dispose();
-    };
-  }, [modelGroupsService]);
+  const enabledModelGroups = useEnabledModelGroups(modelGroupsService);
   const draftModelSelectionRevisionRef = useRef<number | null>(null);
   useEffect(() => {
     if (sessionId !== null) {

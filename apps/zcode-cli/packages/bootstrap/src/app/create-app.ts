@@ -228,6 +228,7 @@ export async function createZCodeApp(options: ZCodeAppOptions): Promise<ZCodeApp
       plugins: pluginOutcome.plugins,
       reservedProfileNames: zcodeSubagentProfiles.map((profile) => profile.name),
       modelSelectionOverrides: zcodeSubagentProfileOutcome.pluginAgentModelSelectionOverrides,
+      modelGroupOverrides: zcodeSubagentProfileOutcome.pluginAgentModelGroupOverrides,
     }).profiles;
     const pluginRuntimeFeatures = resolvePluginRuntimeFeatures(pluginOutcome);
     const builtInMcpServers = resolveBuiltInNodeReplMcpServers({
@@ -256,6 +257,7 @@ export async function createZCodeApp(options: ZCodeAppOptions): Promise<ZCodeApp
         pluginRuntimeFeatures,
         builtInSubagentModelSelectionOverrides:
           zcodeSubagentProfileOutcome.builtInModelSelectionOverrides,
+        builtInSubagentModelGroupOverrides: zcodeSubagentProfileOutcome.builtInModelGroupOverrides,
         subagentOutputRootDir: join(cliStorageRoot, "agents"),
         subagentProfiles,
         storageRoot,

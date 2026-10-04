@@ -149,6 +149,8 @@ export interface AgentRuntimeConfig {
     outputRootDir?: string;
     profiles?: readonly AgentProfile[];
     builtInModelSelectionOverrides?: Partial<Record<"general-purpose" | "Explore", ModelSelection>>;
+    /** 内置 subagent 的模型组覆盖（组 id），与同名 ModelSelection 覆盖互斥，组优先。 */
+    builtInModelGroupOverrides?: Partial<Record<"general-purpose" | "Explore", string>>;
   };
   toolAllowlist?: readonly string[];
   toolDisallowlist?: readonly string[];
