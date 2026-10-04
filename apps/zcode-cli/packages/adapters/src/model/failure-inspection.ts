@@ -349,7 +349,7 @@ function findHeaderValue(headers: Record<string, string>, name: string): string 
   return Object.entries(headers).find(([key]) => key.toLowerCase() === name)?.[1];
 }
 
-function isShouldRetryHeaderFalse(headers: Record<string, string>): boolean {
+export function isShouldRetryHeaderFalse(headers: Record<string, string>): boolean {
   const value = findHeaderValue(headers, "x-should-retry")?.trim().toLowerCase();
   return value === "false" || value === "0";
 }

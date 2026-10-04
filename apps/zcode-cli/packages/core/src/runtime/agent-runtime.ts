@@ -282,8 +282,12 @@ export class AgentRuntime {
     this.modelGroupRouter = deps.modelGroupRouter;
     // executionTarget 按形状显式克隆（cloneExecutionTarget）：与 cloneModelSelection
     // 同一防御语义，避免 structuredClone 对含函数/原型对象抛错或丢原型。
-    this.sessionExecutionTarget = config.executionTarget
-      ? cloneExecutionTarget(config.executionTarget)
+    // 函数形态（live 源）在 ctor 里先存 undefined，由首个 turn 的 live 读取解析；
+    // 快照形态（测试/无 live repository 宿主）按值克隆。
+    const initialExecutionTarget =
+      typeof config.executionTarget === "function" ? undefined : config.executionTarget;
+    this.sessionExecutionTarget = initialExecutionTarget
+      ? cloneExecutionTarget(initialExecutionTarget)
       : undefined;
     // 模型组配置的读取点是 methods/turn-model.ts 的 runtime.config.modelGroupsConfig
     // （函数或快照均可，由该处消费时解析），ctor 不做二次拷贝。
@@ -374,6 +378,9 @@ export interface AgentRuntime {
   setSessionModelSelection(selection: ModelSelection | undefined): void;
   getSessionExecutionTarget(): import("@zcode/shared/model-group-types").ExecutionTarget | undefined;
   setSessionExecutionTarget(target: import("@zcode/shared/model-group-types").ExecutionTarget | undefined): void;
+  resolveModelGroupsConfigForValidation(): Promise<
+    import("@zcode/shared/model-group-types").ModelGroupsConfig | undefined
+  >;
   getProjectId(): ProjectId;
   ensureSessionPersistedForExternalActivity(
     input: string,

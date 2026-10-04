@@ -115,10 +115,13 @@ export function setSessionModelSelection(
   this.sessionModelSelection = selection && cloneModelSelection(selection);
   // 双向同步：selection 变化必须让权威执行目标保持一致--旧写路径只改
   // sessionModelSelection 会让 sessionExecutionTarget 停留在过期组/模型上，
-  // 后续路由按陈旧目标派发（悬空一致性）。组 pin 只在同一目标内有意义，
-  // 目标变化即失效。
+  // 后续路由按陈旧目标派发（悬空一致性）。但 undefined 语义是「清除陈旧选择」
+  // 的恢复/刷新路径，绝不能顺手清掉一个与本次选择无关的组绑定：只有显式给出
+  // 新选择时才重写执行目标；否则保留现有目标。
   const previousTarget = this.sessionExecutionTarget;
-  const nextTarget = selection ? { kind: "model" as const, selection: cloneModelSelection(selection) } : undefined;
+  const nextTarget = selection
+    ? { kind: "model" as const, selection: cloneModelSelection(selection) }
+    : previousTarget;
   this.sessionExecutionTarget = nextTarget;
   if (!sameExecutionTarget(previousTarget, nextTarget)) {
     this.turnPinnedMemberId = undefined;
@@ -130,6 +133,14 @@ export function getSessionExecutionTarget(this: AgentRuntimeInternal): import("@
   // 运行时目标（与 sessionModelSelection 的 cloneModelSelection 同一防御语义）。
   const target = this.sessionExecutionTarget;
   return target ? cloneExecutionTarget(target) : undefined;
+}
+
+export async function resolveModelGroupsConfigForValidation(
+  this: AgentRuntimeInternal,
+): Promise<import("@zcode/shared/model-group-types").ModelGroupsConfig | undefined> {
+  const source = this.config.modelGroupsConfig;
+  if (typeof source === "function") return await source();
+  return source;
 }
 
 export function setSessionExecutionTarget(
@@ -166,10 +177,14 @@ function sameExecutionTarget(
   if (left.kind !== right.kind) return false;
   if (left.kind === "group" && right.kind === "group") return left.groupId === right.groupId;
   if (left.kind === "model" && right.kind === "model") {
+    // 只比 providerId/modelId/reasoningLevel 会漏掉 options 里的其他叶子：
+    // 成员路由依赖这些字段时，改 options 却判为「同目标」会让 turn pin 跨
+    // 目标变化错误保留。options 形状不稳定，用结构化等价兜底。
     return (
       left.selection.providerId === right.selection.providerId &&
       left.selection.modelId === right.selection.modelId &&
-      left.selection.options?.reasoningLevel === right.selection.options?.reasoningLevel
+      JSON.stringify(left.selection.options ?? null) ===
+        JSON.stringify(right.selection.options ?? null)
     );
   }
   return false;

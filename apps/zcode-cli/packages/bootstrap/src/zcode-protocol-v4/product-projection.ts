@@ -4591,10 +4591,10 @@ export class ProductProjection {
     }
     // P1-5 修复（spec §3「回退不得覆盖用户请求的组意图」）：
     // config.executionTarget 记录的是用户请求的结构化执行意图，与实际生效模型分离。
-    // - 当前意图是组（kind=group）时，具体成员的 ModelSelected（组会话冷恢复按
-    //   message 事实重建的历史选型、或成员生效模型上屏）只准更新 model 字段，
-    //   不得把 executionTarget 从组改写成成员模型--组意图只能由 runtime 种子
-    //   （switchModelConfig/createSession 应用后）或 ModelGroupRouted 事件改变。
+    // - 当前意图是组（kind=group）时，成员生效模型上屏或 failover 的 ModelSelected
+    //   只准更新 model 字段，不得把 executionTarget 从组改写成成员模型--只有
+    //   用户显式直选（非 registryFallback 的 ModelSelected）、runtime 种子
+    //   （switchModelConfig/createSession 应用后）或 ModelGroupRouted 事件能改写组意图。
     // - 当前不是组意图时，ModelSelected 对应一次直接模型意图的应用
     //   （switchModelConfig 直选 / createSession.config / 直接模型 Submission），
     //   executionTarget 同步为本次选型的 model 目标；切回直接模型即由此覆盖旧值。
@@ -4603,7 +4603,7 @@ export class ProductProjection {
     const nextExecutionTarget =
       String(event.traceId) === HYDRATION_TRACE_ID
         ? prev.executionTarget
-        : prev.executionTarget?.kind === "group"
+        : prev.executionTarget?.kind === "group" && payload.origin === "registryFallback"
           ? prev.executionTarget
           : { kind: "model" as const, selection: modelSelection };
     const executionTargetChanged = !sameExecutionTarget(prev.executionTarget, nextExecutionTarget);

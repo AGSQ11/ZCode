@@ -86,6 +86,10 @@ export interface AgentRuntimeCoreMethods {
   setSessionModelSelection(selection: ModelSelection | undefined): void;
   getSessionExecutionTarget(): ExecutionTarget | undefined;
   setSessionExecutionTarget(target: ExecutionTarget | undefined): void;
+  /** Bootstrap 校验用的实时组配置读取（函数或快照源解析后的值）。 */
+  resolveModelGroupsConfigForValidation(): Promise<
+    import("@zcode/shared/model-group-types").ModelGroupsConfig | undefined
+  >;
   getProjectId(): ProjectId;
   setWorkingDirectory(cwd: string): void;
   ensureSessionPersistedForExternalActivity(

@@ -169,6 +169,23 @@ function cloneModelSelection(
   };
 }
 
+function deepClonePlainValue(value: unknown): unknown {
+  // 深克隆普通字面量：嵌套 option 叶子（header map、tool config 等）也必须断开
+  // 与 runtime live 状态的共享引用；遇到函数/类实例直接报错而不是静默丢原型。
+  if (value === null || typeof value !== "object") return value;
+  if (Array.isArray(value)) return value.map((item) => deepClonePlainValue(item));
+  const proto = Object.getPrototypeOf(value);
+  if (proto !== Object.prototype && proto !== null) {
+    throw new Error("cloneExecutionTarget cannot clone non-plain option values");
+  }
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>).map(([key, item]) => [
+      key,
+      deepClonePlainValue(item),
+    ]),
+  );
+}
+
 function cloneExecutionTarget(
   target: ReturnType<ZCodeProtocolSessionRecord["app"]["runtime"]["getSessionExecutionTarget"]>,
 ): typeof target {
@@ -179,7 +196,9 @@ function cloneExecutionTarget(
       selection: {
         providerId: target.selection.providerId,
         modelId: target.selection.modelId,
-        ...(target.selection.options ? { options: { ...target.selection.options } } : {}),
+        ...(target.selection.options
+          ? { options: deepClonePlainValue(target.selection.options) as typeof target.selection.options }
+          : {}),
       },
     };
   }

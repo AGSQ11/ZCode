@@ -73,6 +73,12 @@ const SWITCHABLE_MODES: ReadonlySet<string> = new Set(["build", "edit", "plan", 
  *
  * 行为等价说明：旧协议路径无 active turn guard（运行中也允许切换），这里保持一致不加。
  */
+async function resolveModelGroupsConfigForMutation(
+  runtime: import("@zcode/core").AgentRuntime,
+): Promise<import("@zcode/shared/model-group-types").ModelGroupsConfig | undefined> {
+  return runtime.resolveModelGroupsConfigForValidation();
+}
+
 async function switchModelConfig(
   host: V4CommandCoreHost,
   envelope: CommandEnvelope,
@@ -80,83 +86,123 @@ async function switchModelConfig(
   const payload = envelope.payload as CommandPayloadMap["switchModelConfig"];
   const record = requireRecord(host, envelope.sessionId);
   return runSessionModelConfigMutation(record.app, async () => {
-    if (payload.executionTarget) {
+    const target = payload.executionTarget;
+    const previousTarget = record.app.runtime.getSessionExecutionTarget();
+
+    if (target) {
       // 先做可失败校验再写目标：提前 setSessionExecutionTarget 后任一后续步骤
       // 抛错都会在持久会话上留下「目标已改、模型状态未配」的部分状态。
-      if (payload.executionTarget.kind === "group") {
-        record.app.runtime.setSessionExecutionTarget(payload.executionTarget);
+      if (target.kind === "group") {
+        // 组路径也必须先校验组存在且有可路由成员，再写目标--未校验就持久化
+        // 会把失效组 id 存到会话上，把失败推迟到请求时（悬空目标）。
+        const groupsConfig = await resolveModelGroupsConfigForMutation(record.app.runtime);
+        const group = groupsConfig?.groups.find((g) => g.id === target.groupId);
+        if (!group) {
+          throw new V4ProviderNotInRegistryError(`group:${target.groupId}`);
+        }
+        if (!group.enabled || !group.members.some((m) => m.enabled)) {
+          throw new V4ProviderNotInRegistryError(`group:${target.groupId} (no enabled members)`);
+        }
+        // 同值组目标收口：与直接模型的 noop 语义一致--重发同一组意图应返回
+        // config.unchanged，让客户端区分「已生效」与「本来就是这个值」。
+        if (previousTarget?.kind === "group" && previousTarget.groupId === target.groupId) {
+          throw new V4CommandNoopError(CONFIG_UNCHANGED);
+        }
+        record.app.runtime.setSessionExecutionTarget(target);
         return undefined;
       }
-      // 具体模型目标：确认 provider 在当前 Environment Registry 可用后再写。
-      await ensureProviderClientReady(host, record.app.sessionId, payload.executionTarget.selection.providerId);
-      record.app.runtime.setSessionExecutionTarget(payload.executionTarget);
+      // 具体模型目标：先校验 discriminated 形状再 dereference，provider 在
+      // 当前 Environment Registry 可用后才写--不可信 payload 直接深解引用会
+      // 在串行化 mutation 里抛裸 TypeError 而不是结构化错误。
+      if (target.kind !== "model" || !target.selection?.providerId) {
+        throw new V4ProviderNotInRegistryError("invalid executionTarget shape");
+      }
+      await ensureProviderClientReady(host, record.app.sessionId, target.selection.providerId);
       if (!payload.provider || !payload.model) {
+        record.app.runtime.setSessionExecutionTarget(target);
         return undefined;
       }
+      // 目标已写但后续 setModel 仍可能失败：失败时回滚到上一个目标，避免
+      // 「目标已改、模型状态未配」的部分状态。
+      record.app.runtime.setSessionExecutionTarget(target);
+      try {
+        await applyConcreteModelSwitch(host, record, payload);
+      } catch (error) {
+        record.app.runtime.setSessionExecutionTarget(previousTarget);
+        throw error;
+      }
+      return undefined;
     }
 
     if (!payload.provider || !payload.model) {
       return undefined;
     }
-
-    // previous 必须在串行化临界区内、setModel 之前快照。registry fallback 可能排在本命令
-    // 前面，若在排队前读取会拿到过期 previous，并让 noop/事件顺序与 runtime 真值分裂。
-    const previousSelection = record.app.runtime.getSessionModelSelection();
-    const previousModelSelection =
-      previousSelection &&
-      createModelSelection(
-        previousSelection.providerId,
-        previousSelection.modelId,
-        previousSelection.options?.reasoningLevel,
-      );
-    const previousThought = readActualThought(record, previousSelection);
-    const modelIdentityChanged =
-      previousSelection?.providerId !== payload.provider ||
-      previousSelection?.modelId !== payload.model;
-    const requestedThought = (payload.thought ?? "").trim();
-    const thoughtChanged =
-      Boolean(requestedThought) && requestedThought !== previousSelection?.options?.reasoningLevel;
-    // 同值切换收口：命中 runtime 当前值 → noop ACK（config.unchanged），
-    // 不得以 accepted 静默吞掉--种子对齐后「UI 显示值 = runtime 真值」成立，
-    // 客户端据此区分「已生效」与「本来就是这个值」。
-    if (!modelIdentityChanged && !thoughtChanged && !payload.executionTarget) {
-      throw new V4CommandNoopError(CONFIG_UNCHANGED);
-    }
-    // setModel 前由当前 Environment Registry 确认目标 Provider 可用。
-    await ensureProviderClientReady(host, record.app.sessionId, payload.provider);
-    let actualThought = previousThought;
-    let nextModelSelection: ModelSelection;
-    if (modelIdentityChanged) {
-      const result = await record.app.setModel(`${payload.provider}/${payload.model}`);
-      actualThought = result.thoughtLevel ?? readActualThought(record);
-      if (requestedThought && record.app.listThoughtLevels().includes(requestedThought)) {
-        // 用户即使显式选择了与默认值相同的档位，也是一项 pin。必须调用 setter 让
-        // Session Selection 保存这个显式叶子，不能因为 effective 值相同而吞掉意图。
-        const thoughtResult = await record.app.setThoughtLevel(requestedThought);
-        actualThought = thoughtResult.thoughtLevel;
-      }
-      nextModelSelection = createModelSelection(
-        payload.provider,
-        payload.model,
-        requestedThought && record.app.listThoughtLevels().includes(requestedThought)
-          ? requestedThought
-          : undefined,
-      );
-    } else {
-      // provider/model 相同才表示用户显式切 thought；非法值在任何模型变更前失败。
-      const result = await record.app.setThoughtLevel(requestedThought);
-      actualThought = result.thoughtLevel;
-      nextModelSelection = createModelSelection(payload.provider, payload.model, actualThought);
-    }
-    await record.app.runtime.emitModelSelected({
-      modelSelection: nextModelSelection,
-      ...(actualThought ? { effectiveReasoningLevel: actualThought } : {}),
-      previousModelSelection,
-      supportedThoughtLevels: record.app.listThoughtLevels(),
-      // trace 链路结构透传自 record（会话根 trace），不在命令层另起无关联 traceId。
-      traceContext: record.traceContext,
-    });
+    await applyConcreteModelSwitch(host, record, payload);
     return undefined;
+  });
+}
+
+async function applyConcreteModelSwitch(
+  host: V4CommandCoreHost,
+  record: V4SessionRecordView,
+  payload: CommandPayloadMap["switchModelConfig"],
+): Promise<void> {
+  // previous 必须在串行化临界区内、setModel 之前快照。registry fallback 可能排在本命令
+  // 前面，若在排队前读取会拿到过期 previous，并让 noop/事件顺序与 runtime 真值分裂。
+  const previousSelection = record.app.runtime.getSessionModelSelection();
+  const previousModelSelection =
+    previousSelection &&
+    createModelSelection(
+      previousSelection.providerId,
+      previousSelection.modelId,
+      previousSelection.options?.reasoningLevel,
+    );
+  const previousThought = readActualThought(record, previousSelection);
+  const modelIdentityChanged =
+    previousSelection?.providerId !== payload.provider ||
+    previousSelection?.modelId !== payload.model;
+  const requestedThought = (payload.thought ?? "").trim();
+  const thoughtChanged =
+    Boolean(requestedThought) && requestedThought !== previousSelection?.options?.reasoningLevel;
+  // 同值切换收口：命中 runtime 当前值 → noop ACK（config.unchanged），
+  // 不得以 accepted 静默吞掉--种子对齐后「UI 显示值 = runtime 真值」成立，
+  // 客户端据此区分「已生效」与「本来就是这个值」。
+  if (!modelIdentityChanged && !thoughtChanged && !payload.executionTarget) {
+    throw new V4CommandNoopError(CONFIG_UNCHANGED);
+  }
+  // setModel 前由当前 Environment Registry 确认目标 Provider 可用。
+  await ensureProviderClientReady(host, record.app.sessionId, payload.provider!);
+  let actualThought = previousThought;
+  let nextModelSelection: ModelSelection;
+  if (modelIdentityChanged) {
+    const result = await record.app.setModel(`${payload.provider}/${payload.model}`);
+    actualThought = result.thoughtLevel ?? readActualThought(record);
+    if (requestedThought && record.app.listThoughtLevels().includes(requestedThought)) {
+      // 用户即使显式选择了与默认值相同的档位，也是一项 pin。必须调用 setter 让
+      // Session Selection 保存这个显式叶子，不能因为 effective 值相同而吞掉意图。
+      const thoughtResult = await record.app.setThoughtLevel(requestedThought);
+      actualThought = thoughtResult.thoughtLevel;
+    }
+    nextModelSelection = createModelSelection(
+      payload.provider!,
+      payload.model!,
+      requestedThought && record.app.listThoughtLevels().includes(requestedThought)
+        ? requestedThought
+        : undefined,
+    );
+  } else {
+    // provider/model 相同才表示用户显式切 thought；非法值在任何模型变更前失败。
+    const result = await record.app.setThoughtLevel(requestedThought);
+    actualThought = result.thoughtLevel;
+    nextModelSelection = createModelSelection(payload.provider!, payload.model!, actualThought);
+  }
+  await record.app.runtime.emitModelSelected({
+    modelSelection: nextModelSelection,
+    ...(actualThought ? { effectiveReasoningLevel: actualThought } : {}),
+    previousModelSelection,
+    supportedThoughtLevels: record.app.listThoughtLevels(),
+    // trace 链路结构透传自 record（会话根 trace），不在命令层另起无关联 traceId。
+    traceContext: record.traceContext,
   });
 }
 

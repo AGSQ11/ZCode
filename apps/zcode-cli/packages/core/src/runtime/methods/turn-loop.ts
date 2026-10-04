@@ -85,15 +85,24 @@ export async function runRegularTurnLoop(
       activeGroupRouting &&
       !state.pendingStreamRecoveryRequest
     ) {
-      const prepared = await prepareRoutedAttempt(this, {
-        traceContext: state.turnTraceContext,
-        requestDependencies: activeGroupRouting.requestDependencies,
-        signal: state.turnAbortSignal,
-      });
+      // 先释放上一步遗留租约再重路由：pin 的容量检查要看已释放的槽位，
+      // 否则旧租约会把 pinned 成员误判为 exhausted，迫使无谓换成员/降级（悬空租约）。
+      activeGroupRouting.activeReservation?.release("neutral");
+      let prepared: Awaited<ReturnType<typeof prepareRoutedAttempt>>;
+      try {
+        prepared = await prepareRoutedAttempt(this, {
+          traceContext: state.turnTraceContext,
+          requestDependencies: activeGroupRouting.requestDependencies,
+          signal: state.turnAbortSignal,
+        });
+      } catch (error) {
+        // 重路由失败时旧租约已在上面释放（不可再持有），路由状态整体清除，
+        // 不留下一个指向已释放租约或旧 deadline 的悬空路由快照。
+        delete (state as unknown as Record<string, unknown>)[GROUP_TURN_ROUTING_STATE_KEY];
+        throw error;
+      }
       if (prepared.group) {
-        // 上一步遗留租约在替换路由状态前必须释放：异常路径可能跳过 in-step
-        // finally 释放，直接覆盖会把成员容量永久泄漏（悬空租约）。
-        activeGroupRouting.activeReservation?.release("neutral");
+        // 上一步遗留租约已在重路由前释放；这里仅替换路由状态快照。
         state.model = prepared.model;
         (state as unknown as Record<string, unknown>)[GROUP_TURN_ROUTING_STATE_KEY] = {
           requestStartedAtMs: Date.now(),

@@ -4,6 +4,7 @@ import { findProviderBusinessError, type ClassifiedModelFailure } from "./failur
 import { readMappedAiSdkProviderBusinessError } from "./failure-ai-sdk-provider-error.js";
 import {
   getResponseHeaders,
+  isShouldRetryHeaderFalse,
   parseRetryAfterMsHeaderValue,
   unwrapRetryError,
 } from "./failure-inspection.js";
@@ -130,11 +131,7 @@ export function toAdapterError(
   // 缺省时回退到原始响应头的完整解析值，不能因为「不适合本地等待」而丢字段。
   // x-should-retry: false 的抑制语义与分类器保持一致（failure-inspection.isShouldRetryHeaderFalse）。
   const headers = getResponseHeaders(unwrapped);
-  const shouldRetry = headers
-    ? Object.entries(headers).find(([key]) => key.toLowerCase() === "x-should-retry")?.[1]
-    : undefined;
-  const shouldRetrySuppressed =
-    shouldRetry?.trim().toLowerCase() === "false" || shouldRetry?.trim().toLowerCase() === "0";
+  const shouldRetrySuppressed = headers ? isShouldRetryHeaderFalse(headers) : false;
   const retryAfterMs =
     failure.retryAfterMs ??
     (shouldRetrySuppressed ? undefined : parseRetryAfterMsHeaderValue(headers ?? {}));

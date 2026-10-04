@@ -38,11 +38,13 @@ export function createModelGroupsService(
   // 通知串行化（P1）：config-change 事件各自并发发起读取时，旧读可能晚于新读
   // 解析并发布过期快照，订阅方停留在陈旧状态。链式追加保证通知按发起顺序投递。
   let notifyChain: Promise<void> = Promise.resolve();
-  const notify = (listener: (config: ModelGroupsConfig) => void): void => {
+  const notify = (listener: (config: ModelGroupsConfig) => void, active: () => boolean): void => {
     notifyChain = notifyChain
       .then(async () => {
         const config = await configService.getModelGroupsConfig();
-        listener(config);
+        // 只投递给仍订阅的 listener：dispose 仅摘除底层监听，排队中的回调
+        // 仍可能在 dispose 后触发--违反 Event 可释放语义并可能更新已卸载 UI。
+        if (active()) listener(config);
       })
       .catch(() => {
         // 瞬时读取失败不阻断后续通知
@@ -50,9 +52,16 @@ export function createModelGroupsService(
   };
 
   return {
-    onDidChange: toEvent((listener) =>
-      configService.onDidChange(() => notify(listener)),
-    ),
+    onDidChange: toEvent((listener) => {
+      let active = true;
+      const disposeUnderlying = configService.onDidChange(() =>
+        notify(listener, () => active),
+      );
+      return () => {
+        active = false;
+        disposeUnderlying();
+      };
+    }),
     getConfig: async () => {
       await ensureReady();
       return configService.getModelGroupsConfig();

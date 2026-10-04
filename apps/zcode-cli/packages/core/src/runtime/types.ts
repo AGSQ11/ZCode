@@ -201,8 +201,9 @@ export interface AgentRuntimeConfig {
   memory?: MemoryRuntimeConfig;
   /** 历史恢复允许未绑定；只有完整选择才能创建本轮执行 Model。 */
   modelSelection?: ModelSelection;
-  /** 执行目标（直接模型或模型组）。 */
-  executionTarget?: ExecutionTarget;
+  /** 执行目标（直接模型或模型组）。函数形式由 bootstrap 接入 live Personal Repository，
+   * 与组定义的 live 通道一致（悬空快照会让默认组目标在组被删后仍解析失败）。 */
+  executionTarget?: ExecutionTarget | (() => Promise<ExecutionTarget | undefined>);
   /**
    * 当前环境配置的模型组（turn-model 路由的唯一组事实源）。
    * 函数形式由 bootstrap 接入 live Personal Repository：模型组编辑必须影响
