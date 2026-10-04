@@ -8,6 +8,7 @@ import {
 } from "./config.js";
 import { getMode, getPlanEnabled } from "./config.js";
 import { getSessionModelSelection, setSessionModelSelection } from "./config.js";
+import { getSessionExecutionTarget, setSessionExecutionTarget } from "./config.js";
 import { resolveModelGroupsConfigForValidation } from "./config.js";
 import { getProjectId } from "./config.js";
 import { setWorkingDirectory } from "./config.js";
@@ -210,6 +211,10 @@ export function installAgentRuntimeMethods(ctor: AgentRuntimeConstructor): void 
   proto.getPlanEnabled = getPlanEnabled;
   proto.getSessionModelSelection = getSessionModelSelection;
   proto.setSessionModelSelection = setSessionModelSelection;
+  // 修复：模型组功能新增的执行目标读写方法此前只在 AgentRuntime 上 declare，未挂到原型，
+  // 导致 turn admission（turn.ts）调用 getSessionExecutionTarget 抛 TypeError，消息发送后无响应。
+  proto.getSessionExecutionTarget = getSessionExecutionTarget;
+  proto.setSessionExecutionTarget = setSessionExecutionTarget;
   proto.resolveModelGroupsConfigForValidation = resolveModelGroupsConfigForValidation;
   proto.getProjectId = getProjectId;
   proto.setWorkingDirectory = setWorkingDirectory;
