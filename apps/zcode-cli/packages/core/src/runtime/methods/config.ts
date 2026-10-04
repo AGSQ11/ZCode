@@ -24,7 +24,7 @@ import {
 } from "../helpers/child-client-ports.js";
 import type { AgentRuntimeConfig, ActiveTurnInfo } from "../types.js";
 import type { AgentRuntimeInternal } from "../internal.js";
-import { cloneModelSelection } from "../model-selection.js";
+import { cloneExecutionTarget, cloneModelSelection } from "../model-selection.js";
 import { applyRuntimeExecutionState } from "../execution-state.js";
 
 import { orderProviderVisibleToolContracts } from "../../tool/provider-visible-order.js";
@@ -113,6 +113,81 @@ export function setSessionModelSelection(
 ): void {
   // 恢复/配置刷新可以清除失效选择；未绑定不应借用默认模型，也不影响正在执行的 Active Model。
   this.sessionModelSelection = selection && cloneModelSelection(selection);
+  // 双向同步：selection 变化必须让权威执行目标保持一致--旧写路径只改
+  // sessionModelSelection 会让 sessionExecutionTarget 停留在过期组/模型上，
+  // 后续路由按陈旧目标派发（悬空一致性）。但 undefined 语义是「清除陈旧选择」
+  // 的恢复/刷新路径，绝不能顺手清掉一个与本次选择无关的组绑定：只有显式给出
+  // 新选择时才重写执行目标；否则保留现有目标。
+  const previousTarget = this.sessionExecutionTarget;
+  const nextTarget = selection
+    ? { kind: "model" as const, selection: cloneModelSelection(selection) }
+    : previousTarget;
+  this.sessionExecutionTarget = nextTarget;
+  if (!sameExecutionTarget(previousTarget, nextTarget)) {
+    this.turnPinnedMemberId = undefined;
+  }
+}
+
+export function getSessionExecutionTarget(this: AgentRuntimeInternal): import("@zcode/shared/model-group-types").ExecutionTarget | undefined {
+  // 按形状返回克隆：直接返回内部引用会让调用方的原地修改静默穿透
+  // 运行时目标（与 sessionModelSelection 的 cloneModelSelection 同一防御语义）。
+  const target = this.sessionExecutionTarget;
+  return target ? cloneExecutionTarget(target) : undefined;
+}
+
+export async function resolveModelGroupsConfigForValidation(
+  this: AgentRuntimeInternal,
+): Promise<import("@zcode/shared/model-group-types").ModelGroupsConfig | undefined> {
+  const source = this.config.modelGroupsConfig;
+  if (typeof source === "function") return await source();
+  return source;
+}
+
+export function setSessionExecutionTarget(
+  this: AgentRuntimeInternal,
+  target: import("@zcode/shared/model-group-types").ExecutionTarget | undefined,
+): void {
+  const previous = this.sessionExecutionTarget;
+  // 存入前克隆：调用方持有的对象后续被原地修改时，运行时状态不能跟着变。
+  this.sessionExecutionTarget = target ? cloneExecutionTarget(target) : undefined;
+  if (target?.kind === "model") {
+    this.sessionModelSelection = cloneModelSelection(target.selection);
+  } else if (target?.kind === "group") {
+    // 切换到组时清除陈旧具体选择：仍读 sessionModelSelection 的兼容路径不能
+    // 继续用上一个模型路由组请求（P1 权威收敛）。
+    this.sessionModelSelection = undefined;
+  } else if (target === undefined) {
+    // 清除目标时同样清除陈旧具体选择：未绑定执行目标即无可路由模型，
+    // 保留旧 selection 会让兼容路径继续路由到过期模型（悬空状态）。
+    this.sessionModelSelection = undefined;
+  }
+  // P1-1（spec §6）：执行目标变化后旧 turn pin 立即失效--pin 只在同一目标、
+  // 同一用户 turn 内有意义；目标不变时保留 pin（turn 中途的同目标刷新不打断亲和）。
+  if (!sameExecutionTarget(previous, target)) {
+    this.turnPinnedMemberId = undefined;
+  }
+}
+
+function sameExecutionTarget(
+  left: import("@zcode/shared/model-group-types").ExecutionTarget | undefined,
+  right: import("@zcode/shared/model-group-types").ExecutionTarget | undefined,
+): boolean {
+  if (left === right) return true;
+  if (!left || !right) return false;
+  if (left.kind !== right.kind) return false;
+  if (left.kind === "group" && right.kind === "group") return left.groupId === right.groupId;
+  if (left.kind === "model" && right.kind === "model") {
+    // 只比 providerId/modelId/reasoningLevel 会漏掉 options 里的其他叶子：
+    // 成员路由依赖这些字段时，改 options 却判为「同目标」会让 turn pin 跨
+    // 目标变化错误保留。options 形状不稳定，用结构化等价兜底。
+    return (
+      left.selection.providerId === right.selection.providerId &&
+      left.selection.modelId === right.selection.modelId &&
+      JSON.stringify(left.selection.options ?? null) ===
+        JSON.stringify(right.selection.options ?? null)
+    );
+  }
+  return false;
 }
 
 export function getProjectId(this: AgentRuntimeInternal): ProjectId {

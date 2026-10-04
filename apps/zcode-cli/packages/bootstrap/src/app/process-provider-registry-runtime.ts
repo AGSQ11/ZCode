@@ -145,6 +145,11 @@ export async function startProcessProviderRegistryRuntime(
     });
     try {
       const configuredDefaultModelSelection = await modelSelectionConfigRepository.read();
+      const configuredDefaultTarget = await modelSelectionConfigRepository.readDefaultTarget();
+      // 组配置必须是实时读取源，不是启动快照：启动后创建/编辑/删除的组必须
+      // 立即对路由可见（Settings CRUD 直接写同一 provider_config.json）。
+      const readModelGroupsConfigLive = () =>
+        modelSelectionConfigRepository.readModelGroupsConfig();
       return Object.freeze({
         accountSource: standaloneAccount ?? accountSource,
         async syncAccountProviderConfig(next: AccountProviderConfigSnapshot): Promise<boolean> {
@@ -175,6 +180,8 @@ export async function startProcessProviderRegistryRuntime(
         snapshot,
         modelSelectionConfigRepository,
         configuredDefaultModelSelection,
+        configuredDefaultTarget,
+        modelGroupsConfig: readModelGroupsConfigLive,
       });
     } catch (error) {
       disposeCredentialSubscription?.();

@@ -20,6 +20,7 @@ import {
   IFileWatcherService,
   IOAuthService,
   IModelSelectionService,
+  IModelGroupsService,
   IModelProbeService,
   IProviderSettingsService,
   IProviderProvisioningTargetService,
@@ -77,6 +78,7 @@ export class RemoteServiceAccess implements IServiceAccessor {
   readonly oauthService: IOAuthService;
   readonly providerSettingsService: IProviderSettingsService;
   readonly modelSelectionService: IModelSelectionService;
+  readonly modelGroupsService: IModelGroupsService;
   readonly modelProbeService: IModelProbeService;
   /** Host-only target proxy；不属于 IServiceAccessor，避免向 Renderer 暴露 Secret 写入接口。 */
   readonly providerProvisioningTargetService!: IProviderProvisioningTargetService;
@@ -168,6 +170,9 @@ export class RemoteServiceAccess implements IServiceAccessor {
     );
     this.modelSelectionService = ProxyChannel.toService<IModelSelectionService>(
       channelClient.getChannel(IModelSelectionService.channelName),
+    );
+    this.modelGroupsService = ProxyChannel.toService<IModelGroupsService>(
+      channelClient.getChannel(IModelGroupsService.channelName),
     );
     this.modelProbeService = ProxyChannel.toService<IModelProbeService>(
       channelClient.getChannel(IModelProbeService.channelName),

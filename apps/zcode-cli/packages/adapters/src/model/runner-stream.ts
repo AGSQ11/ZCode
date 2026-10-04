@@ -504,7 +504,7 @@ export async function* runStreamText(input: {
 
         if (isSuspiciousStreamDiagnostics(diagnostics)) {
           // 403 JSON 等业务错误有时不会让 AI SDK 抛出 error chunk，流会以空 completion 结束；
-          // 若不在 adapter 层终止，core 会误报 “Model returned no text...”。
+          // 若不在 adapter 层终止，core 会误报 "Model returned no text..."。
           const streamEndedWithoutOutputError = detectProviderBusinessFinishError({
             providerId: String(statusContext.providerId),
             providerKind: statusContext.providerKind,
@@ -540,6 +540,7 @@ export async function* runStreamText(input: {
               attempt,
               maxAttempts: input.retry.maxAttempts,
               retryCount: emptyCompletionRetryCount,
+              singlePhysicalAttempt: input.request.modelRetryBudget === "single_physical_attempt",
             })
           ) {
             const responseHeaders = await resolveStreamResponseHeaders(streamResult);

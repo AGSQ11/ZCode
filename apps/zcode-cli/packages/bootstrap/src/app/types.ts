@@ -100,6 +100,10 @@ import type {
   WorkspaceHookReviewDecision,
   WorkspaceHookTrustRevokeTarget,
 } from "@zcode/shared/zcode-protocol-v4";
+import type {
+  ExecutionTarget,
+  ModelGroupsConfig,
+} from "@zcode/shared/model-group-types";
 import type { ModelProviderSourceTitle } from "../model-config.js";
 import type { ZCodeInstalledPluginData } from "../plugins.js";
 import type { SessionTranscriptMessage } from "../session-transcript.js";
@@ -152,6 +156,16 @@ export interface ZCodeAppOptions {
   resolveEffectiveModelSelection?: (selection: ModelSelection) => EffectiveModelSelectionResult;
   /** 新 Session 使用的 Environment 默认选择；仅在没有显式 runtime modelSelection 时参与初始化。 */
   configuredDefaultModelSelection?: ModelSelection;
+  /** 新 Session 使用的 Environment 默认执行目标（直接模型或模型组）。函数形式
+   * 与组定义的 live 通道一致--启动后经 Settings 删除/重命名组时，快照值会
+   * 变成悬空 groupId；测试与无 live repository 的宿主可用快照形式。 */
+  configuredDefaultTarget?: ExecutionTarget | (() => Promise<ExecutionTarget | undefined>);
+  /**
+   * 当前环境配置的模型组。函数形式每次实时读取（模型组编辑必须影响下一条被
+   * admission 的 turn，不能冻结为启动快照）；快照形式仅用于测试与无 live
+   * repository 的宿主。
+   */
+  modelGroupsConfig?: ModelGroupsConfig | (() => Promise<ModelGroupsConfig | undefined>);
   modelIoFullRetentionEnabled?: boolean;
   /** 同进程嵌入宿主可注入完整的 borrowed 进程级 Owner；Endpoint 配置不得覆盖它。 */
   telemetryOwner?: AgentTelemetryRuntimeOwner;

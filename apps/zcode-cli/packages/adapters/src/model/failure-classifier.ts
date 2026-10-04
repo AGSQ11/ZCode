@@ -187,6 +187,8 @@ export function classifyModelFailure(
       reason: ModelFailureReasonValue.RateLimited,
       retryReason: ModelRetryReasonValue.RateLimited,
       retryable: true,
+      // 429 是路由层最需要 Retry-After 的分支（earliest retry time / 冷却），漏传会让
+      // group router 退化为本地退避，必须随分类结果带出去。
       retryAfterMs,
       statusCode,
     };

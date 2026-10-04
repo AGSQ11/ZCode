@@ -118,6 +118,22 @@ export function resolveAppRuntimeConfig(input: {
     options.runtimeConfig?.subagents?.builtInModelSelectionOverrides ?? {};
   const runtimeConfig: AgentRuntimeConfig = {
     ...options.runtimeConfig,
+    // 模型组事实源的优先级：显式 runtimeConfig 覆盖（测试、自定义宿主）最优先，
+    // 其次是 app 级 live 源。放在展开运算符之后，runtimeConfig 的显式值才能赢。
+    ...(options.runtimeConfig?.modelGroupsConfig !== undefined
+      ? { modelGroupsConfig: options.runtimeConfig.modelGroupsConfig }
+      : options.modelGroupsConfig !== undefined
+        ? { modelGroupsConfig: options.modelGroupsConfig }
+        : {}),
+    // 执行目标同理：显式 runtimeConfig.executionTarget 赢，其次是环境默认目标。
+    // runtimeConfig.executionTarget 是显式快照；app 级 configuredDefaultTarget 可能是
+    // live 函数或快照，函数形式由 ctor 存 undefined、首个 turn 实时解析（与组定义
+    // 的 live 通道一致，启动后删除组不会让默认目标悬空）。
+    ...(options.runtimeConfig?.executionTarget !== undefined
+      ? { executionTarget: options.runtimeConfig.executionTarget }
+      : options.configuredDefaultTarget !== undefined
+        ? { executionTarget: options.configuredDefaultTarget }
+        : {}),
     genUiOutputRoot: (options.env ?? process.env)[GEN_UI_OUTPUT_ROOT_ENV],
     bashTimeoutPolicy:
       options.runtimeConfig?.bashTimeoutPolicy ??
@@ -126,7 +142,7 @@ export function resolveAppRuntimeConfig(input: {
     modelSelection: initialModelSelection,
     // 仅接受显式传入的会话级工具面（ZCode Protocol session/create 或 CLI
     // --allowed-tools/--disallowed-tools）。不要从 config.permission.allowedTools
-    // 回落：那个键的既有语义是“免审批清单”，把它投影到注册面会让老配置里
+    // 回落：那个键的既有语义是"免审批清单"，把它投影到注册面会让老配置里
     // 只写了几个 allowedTools 的用户突然丢失其余全部工具。
     toolAllowlist: options.runtimeConfig?.toolAllowlist,
     toolDisallowlist: options.runtimeConfig?.toolDisallowlist,

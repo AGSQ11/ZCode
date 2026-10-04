@@ -42,6 +42,7 @@ import type {
   SessionModelTransition,
   V4ConversationFileChangesResult,
 } from "@zcode/shared/zcode-protocol-v4";
+import type { ModelGroup, ModelGroupsConfig } from "@zcode/shared/model-group-types";
 import { logger } from "@/logger.js";
 import { PluginUiSessionProvider } from "@/plugin-ui/index.js";
 import {
@@ -555,7 +556,7 @@ export function SessionPane({
     fileRewindPreview,
   } = useV4Conversation();
   const platform = useOptionalPlatform();
-  const { conversationShareService, modelSelectionService, zcodeSessionService, zcodeTaskService } =
+  const { conversationShareService, modelGroupsService, modelSelectionService, zcodeSessionService, zcodeTaskService } =
     useServices();
   const { intl, locale } = useZCodeIntl();
   const slashCommands = useSlashCommands(workspacePath, workspaceIdentity);
@@ -1245,6 +1246,7 @@ export function SessionPane({
     draftConfigRef,
     resolveInitialDraftConfig,
     handleDraftSelectModel,
+    handleDraftSelectGroup,
     handleDraftSelectThought,
     handleDraftSwitchMode,
     handleDraftSetSystemPrompt,
@@ -1263,6 +1265,35 @@ export function SessionPane({
   });
   const modelSelectionView =
     modelSelectionRead.state.status === "ready" ? modelSelectionRead.state.view : null;
+  // Composer 模型菜单的「Model groups」目录：只暴露 enabled 组；权威事实来自
+  // 目标 Host 的 modelGroupsService，菜单不自行缓存或推断。
+  const [enabledModelGroups, setEnabledModelGroups] = useState<ModelGroup[]>([]);
+  useEffect(() => {
+    // 服务实例切换或读取失败时必须清空旧状态：保留上一服务的组会把失效
+    // 目标留在菜单里，选中后路由到已不存在的组（悬空状态）。
+    setEnabledModelGroups([]);
+    if (!modelGroupsService) {
+      return undefined;
+    }
+    let disposed = false;
+    const apply = (config: ModelGroupsConfig) => {
+      if (!disposed) setEnabledModelGroups(config.groups.filter((group) => group.enabled));
+    };
+    void modelGroupsService
+      .getConfig()
+      .then(apply)
+      .catch((error) => {
+        logger.warn("[v4-pane] model groups 目录加载失败", {
+          error: error instanceof Error ? error.message : String(error),
+        });
+        if (!disposed) setEnabledModelGroups([]);
+      });
+    const subscription = modelGroupsService.onDidChange(apply);
+    return () => {
+      disposed = true;
+      subscription.dispose();
+    };
+  }, [modelGroupsService]);
   const draftModelSelectionRevisionRef = useRef<number | null>(null);
   useEffect(() => {
     if (sessionId !== null) {
@@ -1407,11 +1438,22 @@ export function SessionPane({
       sessionCreateSource?: SessionCreateSource,
     ): Promise<CommandAck> => {
       const submission = submissionConfigFromCommand(type, payload);
-      const acceptRecent = submission
-        ? captureComposerRecentSubmission(workspacePath, submission, workspaceIdentity)
-        : undefined;
+      const acceptRecent =
+        submission && submission.modelSelection
+          ? captureComposerRecentSubmission(
+              workspacePath,
+              // modelSelection 已由上方 guard 收窄为非空；ComposerSubmissionConfig 声明为可选
+              // 需要显式窄化到 capture 的必填签名（原无操作 spread 只是重建同一对象）。
+              { mode: submission.mode, modelSelection: submission.modelSelection },
+              workspaceIdentity,
+            )
+          : undefined;
+      // Bug 原因：group 提交的 modelSelection 为 undefined，旧代码伪造
+      // { providerId: "", modelId: "" } 交给 captureAcceptedModelSelection；accepted 后
+      // 会把空选择写回草稿，覆盖 group intent。group 目标没有单模型可回写，
+      // 只在 modelSelection 存在时才捕获 accepted 选择。
       const acceptSelection =
-        submission && (sessionId === null || targetSessionId === sessionId)
+        submission && submission.modelSelection && (sessionId === null || targetSessionId === sessionId)
           ? captureAcceptedModelSelection(submission.modelSelection)
           : undefined;
       const envelope = createCommandEnvelope({
@@ -2638,7 +2680,7 @@ export function SessionPane({
         // resumeGoal 等控制命令也不应被发送消息确认框截获。
         return "confirmationRequired" as const;
       }
-      if (slashCommand === null || slashCommand.kind === "sendGoalCommand") {
+      if ((slashCommand === null || slashCommand.kind === "sendGoalCommand") && submission.modelSelection) {
         const original = submission.modelSelection;
         const chosen = await recommendStartPlan(original);
         if (!chosen) return "blocked" as const;
@@ -4458,6 +4500,8 @@ export function SessionPane({
       onComposerRestoreApplied={handleComposerRestoreApplied}
       onStop={handleStopFromButton}
       onSelectModel={handleSelectModel}
+      onSelectGroup={handleDraftSelectGroup}
+      modelGroupTargets={enabledModelGroups}
       onSelectThought={handleSelectThought}
       onSwitchMode={handleSwitchMode}
       onSetSystemPrompt={handleSetSystemPrompt}

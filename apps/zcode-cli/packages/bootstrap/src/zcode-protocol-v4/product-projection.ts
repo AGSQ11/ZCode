@@ -1,7 +1,8 @@
 import { PERMISSION_FULL_ACCESS_OPTION_ID } from "@zcode/shared/zcode-protocol-v4";
-// ProductProjection —— CLI 权威投影第二 reducer。
+import type { ExecutionTarget } from "@zcode/shared/model-group-types";
+// ProductProjection -- CLI 权威投影第二 reducer。
 // 输入：CLI 事件日志（SessionEvent，权威事实源）；输出：ConversationDelta[]。
-// 快照推进复用协议规范 apply（applyConversationDeltas）——投影演进与 delta 流
+// 快照推进复用协议规范 apply（applyConversationDeltas）--投影演进与 delta 流
 // 逐字节一致是构造保证，黄金测试再用独立重放交叉验证。
 //
 // 覆盖：session/turn 生命周期、流式文本/思考、tool call 状态机、
@@ -13,6 +14,7 @@ import type {
   DynamicWorkflowRunProgressPayload,
   HookRunLifecyclePayload,
   ModelCompletePayload,
+  ModelGroupRoutedPayload,
   ModelNetworkStatusPayload,
   ModelSelectedPayload,
   ModelStreamingPayload,
@@ -61,7 +63,7 @@ import {
   clearSettledOutputPreviews,
   projectToolActivity,
 } from "./product-projection-bash-progress.js";
-// review 单调性裁决单一来源；projection 只实现“应用策略”（advance/no_current 接受，
+// review 单调性裁决单一来源；projection 只实现"应用策略"（advance/no_current 接受，
 // 其余忽略；跨 flow 等 onSessionResumed 清空）。
 // （改直连 monotonicity subpath；discovery barrel 的该 re-export
 // 会在 packages/ui 的 Desktop 构建链解析失败，App 重启后打不开。）
@@ -234,12 +236,18 @@ function hookExecutionDisplayName(
 /**
  * config 种子：投影初始化/冷恢复后从 runtime 真值注入的初值。
  * 与事件写入路径（ModelSelected / SessionModeChanged）的关系：种子只填「事件尚未
- * 触碰」的字段——日志重放值永远优先（"最终值以日志为准"）。
+ * 触碰」的字段--日志重放值永远优先（"最终值以日志为准"）。
  */
 export interface SessionConfigSeed {
   permissionGrant?: { interactionId: string };
   planEnabled?: boolean;
   modelSelection?: ModelSelectedPayload["modelSelection"];
+  /**
+   * P1-5：runtime 持有的结构化执行目标（直接模型或模型组）。
+   * 与 modelSelection 同属模型意图区，共用 configModelTouchedByEvent 守卫：
+   * 日志事件（含冷恢复重放）已触碰过的会话不被种子覆盖。
+   */
+  executionTarget?: ExecutionTarget;
   provider?: string;
   model?: string;
   thought?: string;
@@ -292,6 +300,25 @@ function sameSparseModelSelection(
     left.providerId === right.providerId &&
     left.modelId === right.modelId &&
     left.options?.reasoningLevel === right.options?.reasoningLevel
+  );
+}
+
+/**
+ * P1-5：结构化执行目标等值判定。组目标按 stable groupId 比较（改名不影响身份，
+ * spec §3）；模型目标复用稀疏选型等值（provider/model/reasoning 三元组）。
+ */
+function sameExecutionTarget(
+  left: ExecutionTarget | undefined,
+  right: ExecutionTarget | undefined,
+): boolean {
+  if (!left || !right) return left === right;
+  if (left.kind !== right.kind) return false;
+  if (left.kind === "group") {
+    return left.groupId === (right as Extract<ExecutionTarget, { kind: "group" }>).groupId;
+  }
+  return sameSparseModelSelection(
+    left.selection,
+    (right as Extract<ExecutionTarget, { kind: "model" }>).selection,
   );
 }
 
@@ -446,7 +473,7 @@ export class ProductProjection {
   // 必须持续排除，而不是只覆盖一次 snapshot；否则下一条无关事件会从历史 row 再物化它。
   private invalidSubagentChildSessionIds = new Set<string>();
   // rowId → 权威 messageId 侧表。forkAssistant/editUserQuery 的命令载荷用 rowId
-  // 定位，但旧 fork/rewind operations 用 messageId（history target）——桥接层经本表翻译。
+  // 定位，但旧 fork/rewind operations 用 messageId（history target）--桥接层经本表翻译。
   // 不进 row schema（客户端只发 rowId，messageId 是服务端内部锚点，避免污染冻结的行结构）。
   private messageIdByRowId = new Map<number, string>();
   // Continue 复用 rowId 后，动作锚点推进到最后一条 assistant message；旧 partial messageId
@@ -461,7 +488,7 @@ export class ProductProjection {
   private turnHeaderRowIdByTurnId = new Map<string, number>();
   private compactMarkerRowIdByOperationId = new Map<string, number>();
   // goal verify boundary 身份 = targetId_goalIteration
-  // （verificationId 仅 attempt alias——同 iteration 重试携带新 verificationId，
+  // （verificationId 仅 attempt alias--同 iteration 重试携带新 verificationId，
   // 旧实现按 verificationId keying 会长出第二个 marker）。
   private goalVerifyMarkerRowIdByLifecycleKey = new Map<string, number>();
   // queue drain 在同一 runtimeTurn 内切出新的
@@ -498,7 +525,7 @@ export class ProductProjection {
   private configModeTouchedByEvent = false;
   // assistant 守恒：非运行期拒收的正文流计数（gateway 据此置 stale）。
   private droppedContentStreamEventCount = 0;
-  // 读取期 legacy fallback 必须可观测；否则 normalizer 缺字段后仍会退化为“可见但不可寻址”。
+  // 读取期 legacy fallback 必须可观测；否则 normalizer 缺字段后仍会退化为"可见但不可寻址"。
   private normalizationDiagnostics: ConversationNormalizationDiagnostic[] = [];
 
   constructor(sessionId: string, logEpoch: string) {
@@ -552,12 +579,12 @@ export class ProductProjection {
    *
    * 初始快照 config 曾写死空 provider/model +
    * mode="build"，而 ModelSelected 只在 switchModelConfig 后补发、SessionCreated 刻意
-   * 不产 delta——runtime 真值（启动默认模型/项目持久化 mode/历史会话上次选型）从头到尾
+   * 不产 delta--runtime 真值（启动默认模型/项目持久化 mode/历史会话上次选型）从头到尾
    * 进不了投影。后果：① 新会话模型选择器显示空；② 项目持久化 mode=yolo 时 UI 显示
-   * build，点 yolo 命中 handler 同值 no-op（判的是 runtime 真值），UI 永远无法收敛——
+   * build，点 yolo 命中 handler 同值 no-op（判的是 runtime 真值），UI 永远无法收敛--
    * 打破了「revision 不变 ⇔ 无状态变化」的 CAS 不变量。
    *
-   * 为什么这么修：种子直改 snapshot.config，不产 delta、不递增 revision/seq——
+   * 为什么这么修：种子直改 snapshot.config，不产 delta、不递增 revision/seq--
    * draft「无可见 delta」裁决不被破坏；事件触碰过的区块跳过（重放序
    * 在种子之后时日志值优先）。幂等：可在 ensurePublisher / hydration 后重复调用。
    */
@@ -577,6 +604,17 @@ export class ProductProjection {
         config.modelSelection = seed.modelSelection
           ? cloneSparseModelSelection(seed.modelSelection)
           : undefined;
+        changed = true;
+      }
+      // P1-5 修复：executionTarget 是 runtime 持有的结构化执行意图（组或直接模型），
+      // 没有任何事件通道把它带进投影--switchModelConfig(kind=group) 刻意不发
+      // ModelSelected。种子是把组意图送进 v4 快照 config 的唯一通道；与
+      // modelSelection 同守卫（同属模型意图区），事件触碰过的会话不被覆盖。
+      if (
+        seed.executionTarget !== undefined &&
+        !sameExecutionTarget(config.executionTarget, seed.executionTarget)
+      ) {
+        config.executionTarget = seed.executionTarget;
         changed = true;
       }
       if (seed.provider !== undefined && config.provider !== seed.provider) {
@@ -883,7 +921,7 @@ export class ProductProjection {
   /**
    * core 侧强校验：
    * rowId 是否为其所属 productTurn 的最后一段 assistantText。UI（平铺后）已只在
-   * 最后段暴露 fork 入口，这里是防御闸——直接命令面/旧客户端不得 fork 中间段。
+   * 最后段暴露 fork 入口，这里是防御闸--直接命令面/旧客户端不得 fork 中间段。
    */
   isLatestAssistantSegmentRow(rowId: number): boolean {
     const row = this.findRow(rowId);
@@ -1034,7 +1072,7 @@ export class ProductProjection {
     const reducedWithSubagents = [...reduced, ...subagentDeltas];
     // row、命令 target 与 actions 必须属于同一个 materialization transaction。
     // 旧实现只维护 side-map/最新行判断，UI action 由别处推断，cold/tool-only/failed
-    // 轮会出现“入口可见但 target 不可解析”，新目标出现后旧入口也不会撤销。
+    // 轮会出现"入口可见但 target 不可解析"，新目标出现后旧入口也不会撤销。
     const deltas = materializeActions
       ? [...reducedWithSubagents, ...this.materializeCommandRowActions(reducedWithSubagents)]
       : reducedWithSubagents;
@@ -1058,13 +1096,13 @@ export class ProductProjection {
    * 在独立候选投影上归约事件，校验通过后才原子提交。
    *
    * projection 超过 logical frame assembly 上限时，如果先修改当前实例再等
-   * wire encoder 报错，权威内存态会永久停在“无法发 snapshot”的状态。候选实例同时
+   * wire encoder 报错，权威内存态会永久停在"无法发 snapshot"的状态。候选实例同时
    * 隔离 snapshot 与 reducer 的各类 side-map；拒绝时当前实例完全不变，客户端仍可从
    * 最后一个可传输 snapshot 恢复。
    *
    * `accept` 同时拿到这条事件**实际产出**的 delta：有些事件类别可以只按 delta 的字节数给出
    * 一个可靠上界，不必把整份候选快照再序列化一遍（publisher 的 ingest 快路径）。传的是实际
-   * 产出而不是预演，正是因为预演算不准——投影在 reducer 之上还叠了 subagent 镜像与命令
+   * 产出而不是预演，正是因为预演算不准--投影在 reducer 之上还叠了 subagent 镜像与命令
    * actions 的 materialization，少算一条就把 16MiB 闸门算松了。
    */
   applyEventAtomically(
@@ -1219,7 +1257,7 @@ export class ProductProjection {
       }
       if (latestEditable && latestAssistant) break;
     }
-    // 旧逻辑只按“最新完整 assistant”挑 retry，background result 的
+    // 旧逻辑只按"最新完整 assistant"挑 retry，background result 的
     // synthetic turn 因此会错误获得入口；若只在 find 条件里过滤 synthetic，又会跳过
     // 最新 background assistant，让更早真实用户轮的 retry 复活。这里必须先锁定全时间线
     // 最新 assistant，再校验同轮 realUser canonical cause，保证普通 retry 不跨轮回退。
@@ -1366,6 +1404,8 @@ export class ProductProjection {
         return this.onStreamRecoveryRetryStarted(event);
       case SessionEventType.ModelSelected:
         return this.onModelSelected(event);
+      case SessionEventType.ModelGroupRouted:
+        return this.onModelGroupRouted(event);
       case SessionEventType.ModelComplete:
         return this.onModelComplete(event);
       case SessionEventType.ToolCallScheduled:
@@ -1668,7 +1708,7 @@ export class ProductProjection {
     if (
       pending ||
       !event.turnId ||
-      // 维护 turn 排除只属于 SessionStart——首条输入即 /compact 时
+      // 维护 turn 排除只属于 SessionStart--首条输入即 /compact 时
       // SessionStart Hook 携带 compact turnId 到达，不能直挂，先入 pending 等
       // 真实 turn。model-only ≠ 维护 turn：background_task / subagent_message /
       // goal continuation 轮同样是 model-only，但它们是会真实跑工具的 agent 轮，
@@ -2004,7 +2044,7 @@ export class ProductProjection {
     // marker 时机：只有当
     // 本轮实际使用的 provider/model 身份与上一轮不同时，才在 turnHeader 之前落
     // modelChange marker。普通首轮 silentInitial 不产 marker；显式 sourceLess 边界
-    // 生成“正在使用”marker。思考深度变化只更新 config.thought，不是模型身份变化。
+    // 生成"正在使用"marker。思考深度变化只更新 config.thought，不是模型身份变化。
     // Bug 背景：旧实现在 onModelSelected（切换动作时）即落 marker，草稿态预热会话
     // 切一次模型就会在首条消息上方挂出 [modelChange]。
     const config = this.snapshot.config;
@@ -2212,7 +2252,7 @@ export class ProductProjection {
     const header = this.turnHeaderForEvent(event);
     if (header?.executionKind === "controlOnly") {
       // controlOnly 没有 Agent 工时；尤其不能把 duration=0 下发给旧 UI，后者会为了
-      // 可读性把 0 秒格式化成“已工作 1 秒”。这里只收口可见轮次，不碰 session control——
+      // 可读性把 0 秒格式化成"已工作 1 秒"。这里只收口可见轮次，不碰 session control--
       // 除了 draft 的离场（见 leaveDraftAfterControlOnlyTurn）。
       const deltas = [
         ...this.upsertTurnHeader(event, headerState, undefined, payload.historyRoundCount),
@@ -2279,7 +2319,7 @@ export class ProductProjection {
             stopTargetKind: "unknown",
             activeWorks: [],
             // 旧 V4 reducer 没有消费 ModelNetworkStatus，补投影后若 turn
-            // 直接进入终态仍不清理，会让“重新连接中”残留到下一轮。
+            // 直接进入终态仍不清理，会让"重新连接中"残留到下一轮。
             apiRetry: null,
           },
           pausedGoal,
@@ -2296,7 +2336,7 @@ export class ProductProjection {
   /**
    * draft 只有一种离场方式：第一轮收口。phase `draft` 的定义是「纯内存、从未有过真实内容、CLI 重启即
    * 消失」；一条 controlOnly 轮一旦收口，会话已有一段持久化的可见历史，再叫 draft 就与
-   * 冷恢复矛盾——store 种子会给它一个终态 phase，而活投影却停在 draft。中枢直接启动
+   * 冷恢复矛盾--store 种子会给它一个终态 phase，而活投影却停在 draft。中枢直接启动
    * 的会话只有一条 controlOnly 启动轮，活投影 phase 恒为 draft，sessions-index 摘要因此被 task-index
    * syncer 当 draft 丢弃，侧栏要等重启才出现。所以 controlOnly 收口只在**会话仍是 draft**时推进 phase
    * （成功 → completedSuccess，取消 → completedInterrupted，失败 → error）；非 draft 会话上的控制轮
@@ -2456,7 +2496,7 @@ export class ProductProjection {
     // 下一次 reasoning/text 到达时会把旧行误收口为 complete。这里必须先标 interrupted，
     // 让恢复流用新 assistant identity 打开新行，避免 UI 看起来像一次连续完整输出。
     // Bug 原因：断流时已由 tool_input_start 打开、但还没等到 tool_call 定稿的工具行也属于
-    // 被作废的 tail——core 只为已提交的工具合成终态，这些行没人收口；恢复请求会用新的
+    // 被作废的 tail--core 只为已提交的工具合成终态，这些行没人收口；恢复请求会用新的
     // toolCallId 再开一行，UI 于是并排出现两张「正在编写工作流」。已提交（running /
     // pendingApproval）的行不在此列，它们的终态由 executor 自己发布。
     return [
@@ -2529,7 +2569,7 @@ export class ProductProjection {
   private onModelStreaming(fact: CanonicalAssistantSegmentFact): ConversationDelta[] {
     const event = fact.event;
     // 迟到终态不复活：非运行期到达的流式事件一律拒收。
-    // assistant 守恒：正文类拒收不是无害丢弃——投影建立晚于
+    // assistant 守恒：正文类拒收不是无害丢弃--投影建立晚于
     // TurnStarted（订阅中途建 publisher）时，整段回复会静默消失直到刷新
     // （「回复整段消失」的 live 向量）。计数暴露给 gateway：置 stale 标记，
     // 下次订阅强制重新 hydration 从持久事实补齐。
@@ -3304,7 +3344,7 @@ export class ProductProjection {
                   : option.optionId,
             label: option.name,
             // 会话免确认的 kind 映到闭集里的 allowAlways（排序槽位 / 样式与 always allow 同），
-            // optionId 原样 allowSession——broker 靠它精确命中，GUI 靠 name 本地化。
+            // optionId 原样 allowSession--broker 靠它精确命中，GUI 靠 name 本地化。
             kind:
               option.kind === "allow_once"
                 ? ("allowOnce" as const)
@@ -3622,7 +3662,7 @@ export class ProductProjection {
       payload.targetTurnId ?? event.turnId ?? this.currentTurnId ?? "turn-unknown",
     );
     // drain 事实优先自带文本/messageId（drainedInputs），
-    // 投影不再依赖内存 queue 状态取文本——旧实现查不到 queue item 就静默 continue，
+    // 投影不再依赖内存 queue 状态取文本--旧实现查不到 queue item 就静默 continue，
     // 用户输入从 queue 消失后也不进 history。旧事件（无 drainedInputs）回退查表。
     const items =
       payload.drainedInputs ??
@@ -3912,7 +3952,7 @@ export class ProductProjection {
   /**
    * switchCollaborationMode：SessionModeChanged → config.mode。
    * 事件来源覆盖命令面（source=command）与 plan 工具路径（enterPlanMode/exitPlanMode，
-   * source=tool）——两条路径共用这条投影，UI 的模式选择器因此也能跟随工具驱动的模式切换。
+   * source=tool）--两条路径共用这条投影，UI 的模式选择器因此也能跟随工具驱动的模式切换。
    */
   private onSessionModeChanged(event: SessionEvent): ConversationDelta[] {
     const payload = event.payload as {
@@ -3923,7 +3963,7 @@ export class ProductProjection {
       permissionGrant?: { interactionId: string; queueItemIds: string[] };
     };
     const mode = typeof payload.mode === "string" ? payload.mode : "";
-    // 日志事件触碰过 mode 后，种子不再覆盖（同值 return 也算触碰——日志有权威值）。
+    // 日志事件触碰过 mode 后，种子不再覆盖（同值 return 也算触碰--日志有权威值）。
     if (mode) this.configModeTouchedByEvent = true;
     if (!mode) return [];
     const planEnabled = payload.planEnabled ?? mode === "plan";
@@ -4383,7 +4423,7 @@ export class ProductProjection {
     // 新事件使用 runtime 的显式 taskKind；旧事件统一走 shared resolver，
     // 不能再在 reducer 内散落 Agent/Task/subagent 字符串分支。
     // "workflow" 是 workflow run（此前错标成 bash）；legacy resolver 里没有对应值，因为
-    // legacy `Workflow` 工具刻意仍归 bash——两者是不同的东西，共用类别会让面板混在一起。
+    // legacy `Workflow` 工具刻意仍归 bash--两者是不同的东西，共用类别会让面板混在一起。
     const kind: BackgroundWorkSummary["kind"] =
       payload.taskKind === "subagent"
         ? "subagent"
@@ -4461,7 +4501,7 @@ export class ProductProjection {
   //
   // 归约本体在 @zcode/shared 的 workflow-runs-reducer（与状态 schema 同居）：TUI 镜像要用
   // 同一份归约，两处各写一份就是两个时钟。
-  // 留在这里的只有投影的非纯部分——从事件信封取载荷、把新旧状态之差发成键级增量。
+  // 留在这里的只有投影的非纯部分--从事件信封取载荷、把新旧状态之差发成键级增量。
   private onDynamicWorkflowRunProgress(event: SessionEvent): ConversationDelta[] {
     // 先转 contracts 的有界 payload、再赋给 shared 的结构化入参：这行赋值就是"两边形状不漂移"
     // 的编译期闸（shared 不得反向依赖 contracts，所以入参类型只能结构化定义）。
@@ -4549,8 +4589,26 @@ export class ProductProjection {
         this.configThoughtLevelsTouchedByEvent = true;
       }
     }
+    // P1-5 修复（spec §3「回退不得覆盖用户请求的组意图」）：
+    // config.executionTarget 记录的是用户请求的结构化执行意图，与实际生效模型分离。
+    // - 当前意图是组（kind=group）时，成员生效模型上屏或 failover 的 ModelSelected
+    //   只准更新 model 字段，不得把 executionTarget 从组改写成成员模型--只有
+    //   用户显式直选（非 registryFallback 的 ModelSelected）、runtime 种子
+    //   （switchModelConfig/createSession 应用后）或 ModelGroupRouted 事件能改写组意图。
+    // - 当前不是组意图时，ModelSelected 对应一次直接模型意图的应用
+    //   （switchModelConfig 直选 / createSession.config / 直接模型 Submission），
+    //   executionTarget 同步为本次选型的 model 目标；切回直接模型即由此覆盖旧值。
+    // 冷恢复合成事件（HYDRATION_TRACE_ID）不触碰意图：历史成员重建不是选型动作，
+    // 组意图由 hydration 收尾的种子按 runtime 真值收口。
+    const nextExecutionTarget =
+      String(event.traceId) === HYDRATION_TRACE_ID
+        ? prev.executionTarget
+        : prev.executionTarget?.kind === "group" && payload.origin === "registryFallback"
+          ? prev.executionTarget
+          : { kind: "model" as const, selection: modelSelection };
+    const executionTargetChanged = !sameExecutionTarget(prev.executionTarget, nextExecutionTarget);
     // 选型事件只更新 config，不在选型时落 modelChange
-    // marker——切换动作是意向，marker 归 onTurnStarted 按「与上一轮实际选型不同」
+    // marker--切换动作是意向，marker 归 onTurnStarted 按「与上一轮实际选型不同」
     // 裁决（见彼处注释与 Bug 背景）。
     const configChanged = !(
       prev.provider === provider &&
@@ -4575,17 +4633,29 @@ export class ProductProjection {
             to: { provider, model },
           }
         : undefined;
-    if (!configChanged && !contextWindowChanged && modelTransition === undefined) {
+    if (!configChanged && !executionTargetChanged && !contextWindowChanged && modelTransition === undefined) {
       return [];
     }
     return [
       {
         op: "state.updated",
         patch: {
-          ...(configChanged
-            ? { config: { ...prev, modelSelection, provider, model, thought, thoughtLevels } }
+          ...(configChanged || executionTargetChanged
+            ? // P1-5：executionTarget 只在组意图保持或直选应用两条规则下推进；
+              // 组意图期内本 spread 携带的仍是 prev.executionTarget（组），模型字段照常更新。
+              {
+                config: {
+                  ...prev,
+                  modelSelection,
+                  provider,
+                  model,
+                  thought,
+                  thoughtLevels,
+                  executionTarget: nextExecutionTarget,
+                },
+              }
             : {}),
-          // Bug 原因：仅投影 config 会丢失“由 registry fallback 触发”的来源，
+          // Bug 原因：仅投影 config 会丢失"由 registry fallback 触发"的来源，
           // renderer 无法安全地区分自动恢复和显式/历史切换。保留事件 ID 与起止身份，
           // 具体 toast 仍只由客户端在实时 online delivery 边界触发。
           ...(modelTransition ? { modelTransition } : {}),
@@ -4608,6 +4678,34 @@ export class ProductProjection {
                 },
               }
             : {}),
+        },
+      },
+    ];
+  }
+
+  /**
+   * P1-5：ModelGroupRouted 是组路由的事实事件（成员选择/turn pin/failover 都经它发布）。
+   * 它证明 runtime 当前意图是组，因此把 config.executionTarget 对齐到该组--
+   * switchModelConfig(kind=group) 刻意不发 ModelSelected，live 会话的组意图只能靠
+   * 种子或本事件进投影；冷恢复重放同事件时幂等（同值不产 delta）。
+   * 实际成员身份不从这里写 model 字段：成员生效模型由 ModelSelected/usage 事实面
+   * 既有的 model 字段投影（spec §3：requested 与 actual 分离）。
+   */
+  private onModelGroupRouted(event: SessionEvent): ConversationDelta[] {
+    const payload = event.payload as ModelGroupRoutedPayload;
+    if (typeof payload.groupId !== "string" || payload.groupId.trim() === "") return [];
+    const nextTarget: ExecutionTarget = { kind: "group", groupId: payload.groupId };
+    const prev = this.snapshot.config;
+    if (sameExecutionTarget(prev.executionTarget, nextTarget)) return [];
+    // 与 ModelSelected 同守卫：日志事件已给出权威意图后，晚到的种子不得回盖。
+    if (String(event.traceId) !== HYDRATION_TRACE_ID) {
+      this.configModelTouchedByEvent = true;
+    }
+    return [
+      {
+        op: "state.updated",
+        patch: {
+          config: { ...prev, executionTarget: nextTarget },
         },
       },
     ];
@@ -4842,7 +4940,7 @@ export class ProductProjection {
       case "set": {
         if (!payload.target) return [];
         // 新目标：iteration/verifications 归零。
-        // goalSet 是 stateOnly——不产 timeline row（旧实现
+        // goalSet 是 stateOnly--不产 timeline row（旧实现
         // 的 goalSet marker 是「进 window 渲染 null」的隐形行，污染 turn 分组判定），
         // 目标展示归 goal 面板/状态区。
         const goal: GoalState = {
@@ -4998,7 +5096,7 @@ export class ProductProjection {
         row: { ...markerRow, marker: terminalMarker },
       });
     } else {
-      // GV-terminal-only：boundary 按 lifecycleKey upsert——任一生命周期
+      // GV-terminal-only：boundary 按 lifecycleKey upsert--任一生命周期
       // 事件先到都能创建实体。旧实现终态找不到 started marker 就整条丢弃（冷恢复
       // 后到达的终态、started 事件丢帧都触发）。
       const row: TimelineMarkerRow = {
@@ -5124,8 +5222,8 @@ export class ProductProjection {
   }
 
   // 落位：优先 anchorAssistantMessageId（解析到已渲染
-  // 行的所属轮——fork copy 后是 remap 过的 child local id）；次选 anchorTurnId
-  // （必须是已知轮，未知 id 不得当 turnId 用——否则会长出幽灵 turn 分组，
+  // 行的所属轮--fork copy 后是 remap 过的 child local id）；次选 anchorTurnId
+  // （必须是已知轮，未知 id 不得当 turnId 用--否则会长出幽灵 turn 分组，
   // fork 前的父 runtime turnId 就是典型）；最后按事件归属。
   private goalVerifyTurnId(
     payload: TargetCompletionVerificationPayload,
@@ -5153,7 +5251,7 @@ export class ProductProjection {
     const payload = event.payload as SessionForkedPayload;
     const isParent = String(payload.originalSessionId) === this.snapshot.sessionId;
     if (isParent) {
-      // 父时间线不显示 forkCreated——fork 关系只在 sessions
+      // 父时间线不显示 forkCreated--fork 关系只在 sessions
       // 树/列表体现。旧实现以 nextRowId-1 近似锚点产 row，且 UI 渲染为 null
       // （隐形行污染 turn 分组）；child 首部 forkNotice 保留不变。
       return [];
@@ -5510,7 +5608,7 @@ function toProtocolToolCallDisplay(
     case "respond_to_coordinator":
     case "mcp_tool":
     case "create_workflow":
-    // 观察类工作流工具的五个 display kind——shared 侧 toolCallDisplaySchema 已同步加
+    // 观察类工作流工具的五个 display kind--shared 侧 toolCallDisplaySchema 已同步加
     // 成员，这里放行后 UI 才能在 row.display 上拿到结构化载荷。
     case "get_workflow_run":
     case "list_workflow_runs":

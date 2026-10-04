@@ -24,7 +24,9 @@ export function canRetryEmptyCompletion(input: {
   attempt: number;
   maxAttempts: number;
   retryCount: number;
+  singlePhysicalAttempt?: boolean;
 }): boolean {
+  if (input.singlePhysicalAttempt) return false;
   return (
     !input.abortSignal?.aborted &&
     input.retryCount < EMPTY_COMPLETION_MAX_RETRIES &&

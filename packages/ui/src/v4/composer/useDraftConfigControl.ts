@@ -61,6 +61,20 @@ function applyDraftModelSelection(
   return next;
 }
 
+/** 选组：清空模型意图并写入 group 执行目标（草稿持久化在 V4ComposerDraft.executionTarget）。 */
+function applyDraftGroupSelection(
+  current: Partial<SessionConfigState>,
+  groupId: string,
+): Partial<SessionConfigState> {
+  const next = { ...current };
+  delete next.modelSelection;
+  delete next.thought;
+  delete next.provider;
+  delete next.model;
+  next.executionTarget = { kind: "group", groupId };
+  return next;
+}
+
 function shouldHydrateWorkspaceCatalog(params: {
   configOptions: readonly ZCodeConfigOption[];
   sessionId: string | null;
@@ -95,6 +109,7 @@ interface DraftConfigControl {
     expectedSelection?: ModelSelection,
   ) => () => void;
   handleDraftSelectModel: (modelProvider: string, model: string) => void;
+  handleDraftSelectGroup: (groupId: string) => void;
   handleDraftSelectThought: (thought: string) => void;
   handleDraftSwitchMode: (mode: string) => void;
   /** 会话级系统提示词覆盖；undefined/空串 = 清除覆盖。 */
@@ -189,9 +204,10 @@ export function useDraftConfigControl(params: {
       provider: effectiveSelection?.providerId ?? "",
       model: effectiveSelection?.modelId ?? "",
       thought: effectiveSelection?.options?.reasoningLevel ?? "",
+      ...(draft.executionTarget ? { executionTarget: draft.executionTarget } : {}),
       ...(draft.systemPrompt ? { systemPrompt: draft.systemPrompt } : {}),
     }),
-    [draft.mode, draft.planEnabled, draft.systemPrompt, effectiveSelection],
+    [draft.mode, draft.planEnabled, draft.systemPrompt, draft.executionTarget, effectiveSelection],
   );
   const draftConfigRef = useRef(draftConfig);
   draftConfigRef.current = draftConfig;
@@ -219,15 +235,23 @@ export function useDraftConfigControl(params: {
         next.modelSelection === previous.modelSelection
           ? draftConfigRef.current.modelSelection
           : next.modelSelection;
-      draftConfigRef.current = {
+      // group 目标与 modelSelection 互斥：executionTarget 变化时必须整段带下，
+      // 不能沿用 ref 中的旧 model 目标。
+      const executionTarget =
+        next.executionTarget === previous.executionTarget
+          ? draftConfigRef.current.executionTarget
+          : next.executionTarget;
+      const nextRefConfig: Partial<SessionConfigState> & { systemPrompt?: string } = {
         mode: next.mode,
         planEnabled: next.planEnabled ?? false,
         modelSelection: selection,
         provider: selection?.providerId ?? "",
         model: selection?.modelId ?? "",
         thought: selection?.options?.reasoningLevel ?? "",
+        ...(executionTarget ? { executionTarget } : {}),
         ...(next.systemPrompt ? { systemPrompt: next.systemPrompt } : {}),
       };
+      draftConfigRef.current = nextRefConfig;
       setStoredState(nextState);
       persistV4ComposerDraft(workspacePath, workspaceIdentity, scopeId, next);
       lastPersistedDraftRef.current = next;
@@ -242,6 +266,8 @@ export function useDraftConfigControl(params: {
         ...current,
         mode: mode.success ? mode.data : current.mode,
         modelSelection: next.modelSelection,
+        // group/model 互斥意图的唯一草稿事实；选模型后必须清掉 group 目标（或反之）。
+        executionTarget: next.executionTarget,
         // 用户已经显式改选，不能再由导入时等待的默认初始化覆盖。
         ...(current.initializeFromNewTask
           ? { mode: mode.success ? mode.data : "build", initializeFromNewTask: undefined }
@@ -428,9 +454,28 @@ export function useDraftConfigControl(params: {
         workspacePath,
         workspaceIdentity: workspaceIdentity ?? null,
       });
-      updateDraftConfig((current) => applyDraftModelSelection(current, modelSelection));
+      updateDraftConfig((current) => {
+        const next = applyDraftModelSelection(current, modelSelection);
+        // 显式选模型后不能再保留 group 目标；两者是互斥的提交意图。
+        delete next.executionTarget;
+        return next;
+      });
     },
     [modelSelectionView, updateDraftConfig, workspaceIdentity, workspacePath],
+  );
+
+  const handleDraftSelectGroup = useCallback(
+    (groupId: string) => {
+      const normalizedGroupId = groupId.trim();
+      if (!normalizedGroupId) return;
+      logger.debug("[v4-draft-config] select group", {
+        groupId: normalizedGroupId,
+        workspacePath,
+        workspaceIdentity: workspaceIdentity ?? null,
+      });
+      updateDraftConfig((current) => applyDraftGroupSelection(current, normalizedGroupId));
+    },
+    [updateDraftConfig, workspaceIdentity, workspacePath],
   );
 
   const handleDraftSelectThought = useCallback(
@@ -509,6 +554,7 @@ export function useDraftConfigControl(params: {
     promoteComposerDraft,
     captureAcceptedModelSelection,
     handleDraftSelectModel,
+    handleDraftSelectGroup,
     handleDraftSelectThought,
     handleDraftSwitchMode,
     handleDraftSetSystemPrompt,

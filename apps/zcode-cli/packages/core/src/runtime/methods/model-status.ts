@@ -138,5 +138,21 @@ export function logModelNetworkStatus(
         statusMessage: statusEvent.message,
         timeoutMs: statusEvent.timeoutMs,
       });
+      return;
   }
+}
+
+export async function emitModelGroupRouted(
+  this: AgentRuntimeInternal,
+  options: {
+    payload: import("@zcode/contracts").ModelGroupRoutedPayload;
+    traceContext: TraceContext;
+  },
+): Promise<void> {
+  const event = this.createEvent(
+    SessionEventType.ModelGroupRouted,
+    options.payload,
+    options.traceContext,
+  );
+  await this.appendEvent(event, options.traceContext);
 }

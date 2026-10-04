@@ -271,6 +271,16 @@ export async function runZCodeProtocolAgent(
             activeProviderRegistryRuntime.runtime.registryService,
             activeProviderRegistryRuntime.configuredDefaultModelSelection,
           ),
+          // 环境默认执行目标（直接模型或模型组）必须是实时读取源，与组定义的
+          // live 通道一致：启动后经 Settings 删除/重命名组时，快照值会变成悬空
+          // groupId，新会话按快照组目标初始化会在首个 turn 解析失败或静默错路由。
+          configuredDefaultTarget: () =>
+            activeProviderRegistryRuntime.modelSelectionConfigRepository.readDefaultTarget(),
+          // 模型组必须走 live 源而不是启动快照：模型组编辑必须影响下一条被
+          // admission 的 turn。NodeModelSelectionConfigRepository.readModelGroupsConfig()
+          // 每次读 Personal Repository 的最新文件，正好是这条 live 通道。
+          modelGroupsConfig: () =>
+            activeProviderRegistryRuntime.modelSelectionConfigRepository.readModelGroupsConfig(),
           // 只读同进程已应用快照；不为子任务另发 Host RPC，也不在 ModelFactory 偷换模型。
           resolveEffectiveModelSelection: (selection) => {
             const view = modelSelectionFacade.getView(undefined, undefined, { selection });

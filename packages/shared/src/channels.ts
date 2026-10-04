@@ -108,6 +108,8 @@ export const ServiceChannels = {
   ProviderSettings: "provider-settings",
   /** 新 Provider Registry 的模型选择 Facade */
   ModelSelection: "model-selection",
+  /** Model Groups 路由与配置 Facade */
+  ModelGroups: "model-groups",
   /** 模型健康探测 Facade */
   ModelProbe: "model-probe",
   /** 远端 Environment 内部 Provider Provisioning target */

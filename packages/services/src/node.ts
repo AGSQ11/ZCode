@@ -186,6 +186,10 @@ export {
   IModelSelectionService,
   IProviderSettingsService,
 } from "./model-provider/providerFacadeServices.js";
+export {
+  createModelGroupsService,
+  IModelGroupsService,
+} from "./model-provider/modelGroupsService.js";
 export { createAccountRequestAuthService } from "./model-provider/accountRequestAuthService.js";
 export type { IAccountRequestAuthService } from "./model-provider/accountRequestAuthService.js";
 export { createAccountProviderRequestAuthService } from "./model-provider/accountProviderRequestAuthService.js";
@@ -383,6 +387,7 @@ import {
   IModelSelectionService,
   IProviderSettingsService,
 } from "./model-provider/providerFacadeServices.js";
+import { IModelGroupsService } from "./model-provider/modelGroupsService.js";
 import { createModelProbeService, IModelProbeService } from "./model-probe/modelProbeService.js";
 import type { ZCodeAgentModelProbeTarget } from "./zcode-agent/zcodeAgent.js";
 import { createProviderSettingsConnectivityTester } from "./model-provider/providerSettingsConnectivity.js";
@@ -2700,6 +2705,7 @@ export function createLocalServices(options: {
   services
     .register(IProviderSettingsService, providerRuntime.providerSettings)
     .register(IModelSelectionService, providerRuntime.modelSelection)
+    .register(IModelGroupsService, providerRuntime.modelGroups)
     .register(
       IModelProbeService,
       createModelProbeService({

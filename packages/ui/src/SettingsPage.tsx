@@ -55,6 +55,7 @@ import {
 } from "@/lib/accountProviderAccess.js";
 import { buildUsageEntitlementCacheKey } from "@/lib/usageEntitlementCache.js";
 import { ModelProviderSection } from "@/settings/ModelProviderSection.js";
+import { ModelGroupsSection } from "@/settings/ModelGroupsSection.js";
 import { ModelProbeSection } from "@/settings/ModelProbeSection.js";
 import { SystemPromptOverrideCard } from "@/settings/SystemPromptOverrideCard.js";
 import { useCodingPlanUpgradeDialog } from "@/settings/CodingPlanUpgradeDialogProvider.js";
@@ -1832,6 +1833,10 @@ export function SettingsPage({
                                 setPendingModelProviderTarget(undefined)
                               }
                             />
+                          </ServiceProvider>
+                        ) : activeSection === "modelGroups" ? (
+                          <ServiceProvider services={localHostServices}>
+                            <ModelGroupsSection />
                           </ServiceProvider>
                         ) : activeSection === "modelProbe" ? (
                           <ServiceProvider services={localHostServices}>

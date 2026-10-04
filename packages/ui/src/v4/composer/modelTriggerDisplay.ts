@@ -2,6 +2,7 @@ import {
   BUILTIN_MODEL_PROVIDER_IDS,
   resolveModelProviderFamilyIdByProviderId,
 } from "@zcode/shared";
+import type { ExecutionTarget } from "@zcode/shared/model-group-types";
 import type { IntlInstance } from "@/i18n/IntlProvider.js";
 import type { ModelSelectGroup } from "@/ModelConfigSelect.js";
 
@@ -9,6 +10,22 @@ interface V4ModelTriggerDisplay {
   fullLabel: string;
   modelLabel: string;
   providerPrefix?: string;
+}
+
+/** 模型组菜单项的触发器文案：group 目标不属于 provider/model 目录，单独按组名显示。 */
+export function resolveV4GroupTriggerDisplay({
+  executionTarget,
+  groupName,
+  groupBadgeLabel,
+}: {
+  executionTarget: ExecutionTarget | undefined;
+  groupName: string | undefined;
+  groupBadgeLabel: string;
+}): V4ModelTriggerDisplay | null {
+  if (executionTarget?.kind !== "group") return null;
+  const name = groupName?.trim() || executionTarget.groupId;
+  const fullLabel = `${name} (${groupBadgeLabel})`;
+  return { fullLabel, modelLabel: fullLabel };
 }
 
 export function formatModelChangeLabel(

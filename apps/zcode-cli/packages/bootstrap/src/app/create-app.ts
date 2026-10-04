@@ -21,6 +21,7 @@ import {
   AgentRuntime,
   PermissionService,
   buildPluginReferenceCatalog,
+  ModelGroupRouter,
   type AmendWorkflowRunSettingsInput,
   type ResumeSessionResult,
 } from "@zcode/core";
@@ -33,8 +34,10 @@ import {
   createSessionEvent,
   type ExecutionShellSelection,
   type MessageId,
+  type ModelSelection,
 } from "@zcode/contracts";
 import { isRemoteWorkspaceIdentity, resolveZCodeRuntimeEnv } from "@zcode/shared";
+import type { ModelGroupsConfig } from "@zcode/shared/model-group-types";
 import {
   ZCODE_ATTACHMENT_FAULT_CODES,
   ZCodeAttachmentFaultError,
@@ -723,6 +726,29 @@ export async function createZCodeApp(options: ZCodeAppOptions): Promise<ZCodeApp
       registry: options.providerRegistry,
       currentSelection: () => getRuntime().getSessionModelSelection(),
     });
+    // ModelGroupRouter 每 App 只实例化一次（挂在 session runtime 上），与
+    // registry/runtime 同生命周期。authorityScope 用会话身份（sessionId）：
+    // 预留路由、半开、容量记账都以会话为权威范围。
+    //
+    // getGroupsConfig 接受快照与 live 函数两种形态：快照在测试里固定；live 函数
+    // （来自 entrypoint 的 modelSelectionConfigRepository.readModelGroupsConfig）
+    // 每次读 Personal Repository，模型组编辑必须影响下一条被 admission 的 turn。
+    const modelGroupsConfigOption =
+      options.runtimeConfig?.modelGroupsConfig ?? options.modelGroupsConfig;
+    const getGroupsConfig = async (): Promise<ModelGroupsConfig | undefined> =>
+      typeof modelGroupsConfigOption === "function"
+        ? await modelGroupsConfigOption()
+        : modelGroupsConfigOption;
+    const modelGroupRouter = new ModelGroupRouter({
+      authorityScope: sessionId,
+      getGroupsConfig,
+      validateMemberConnection: async (selection: ModelSelection) => {
+        const validation = options.providerRegistry.validateSelection(selection);
+        return validation.ok
+          ? { valid: true, connectionId: selection.providerId }
+          : { valid: false, reason: "selection_invalid" };
+      },
+    });
     runtime = new AgentRuntime(sessionId, runtimeConfig, {
       agentTelemetry: modelTelemetry.agentExecution,
       // 主代理的模型请求过治理器的 observer：立即放行，但让治理器看见它的 429 / 成功。
@@ -762,6 +788,7 @@ export async function createZCodeApp(options: ZCodeAppOptions): Promise<ZCodeApp
       eventSink: options.eventSink,
       modelFactory,
       modelIoDir,
+      modelGroupRouter,
       providerRuntimeHeadersPort: options.providerRuntimeHeadersPort,
       resolveEffectiveModelSelection: options.resolveEffectiveModelSelection,
       isRemoteWorkspace: () =>

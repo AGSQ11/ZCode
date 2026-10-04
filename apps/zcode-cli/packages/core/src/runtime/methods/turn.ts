@@ -62,7 +62,13 @@ import {
 import { scheduleProjectMemoryExtraction } from "../helpers/project-memory-extraction.js";
 import { appendBrowserTurnScreenshot } from "./browser-turn-screenshot.js";
 import { clearBrowserTurnState } from "../../repl/browser-turn-state.js";
-import { applySubmissionExecutionState, createTurnModel } from "./turn-model.js";
+import {
+  applySubmissionExecutionState,
+  createTurnModel,
+  prepareRoutedAttempt,
+  GROUP_TURN_ROUTING_STATE_KEY,
+  type GroupTurnRoutingState,
+} from "./turn-model.js";
 import { rebuildContextPrefix } from "./context-refresh.js";
 
 const TARGET_RUN_HEARTBEAT_MS = 15_000;
@@ -104,6 +110,13 @@ export async function executeTurnCommand(
   const admittedOutputStyle = this.config.outputStyle;
   const compactInstructions = parseCompactCommand(input);
   const rewindCommand = parseRewindCommand(input);
+  // P1-1（spec §6 affinity='turn'）：turn pin 只活一个用户 turn；新的用户 turn 必须在
+  // 模型循环前清零，让策略在新 turn 重新选择成员，而不是复用上一 turn 的 pin。
+  // compact/rewind 不进入模型循环，但同属新用户输入边界，一并重置不会泄漏旧 pin。
+  this.turnPinnedMemberId = undefined;
+  // 组执行目标的 admission 快照：本轮所有路由判定（含 failover 重选前读取 live
+  // 配置）都以进入 turn 时的 target 为准；目标在 turn 中途被改只影响下一轮。
+  const admittedExecutionTarget = this.getSessionExecutionTarget();
   const turnId = startReservation?.turnId ?? createTurnId();
   const queryId = options?.queryId ?? (options?.inputId as QueryId | undefined) ?? createQueryId();
   const displayInput = options?.displayInput ?? input;
@@ -186,14 +199,44 @@ export async function executeTurnCommand(
       beginLocalTurnPreparation(turnTraceContext, "execution")();
       throwIfTurnAborted(turnAbortSignal);
       let admittedModel;
+      // P0-1：组目标的首个物理尝试必须经 prepareRoutedAttempt 创建（路由事件、
+      // single_physical_attempt 预算、lease 都绑在这个接缝上）；直接模型保持
+      // 原有 createTurnModel 路径逐字节不变。
+      let admittedGroupRouting: GroupTurnRoutingState | undefined;
       try {
-        admittedModel =
-          rewindCommand === null
-            ? createTurnModel(this, {
-                requestDependencies: options?.modelExecution?.requestDependencies,
-                selection: admittedModelSelection,
-              })
-            : undefined;
+        if (rewindCommand !== null) {
+          admittedModel = undefined;
+        } else if (admittedExecutionTarget?.kind === "group") {
+          const prepared = await prepareRoutedAttempt(this, {
+            target: admittedExecutionTarget,
+            traceContext: turnTraceContext,
+            requestDependencies: options?.modelExecution?.requestDependencies,
+            signal: turnAbortSignal,
+          });
+          admittedModel = prepared.model;
+          if (prepared.group) {
+            // 逻辑请求的起点与 deadline 由 prepareRoutedAttempt 在路由开始处记录
+            // （spec §9：requestDeadlineMs 覆盖候选准备、准入、网络尝试与恢复）。
+            admittedGroupRouting = {
+              requestStartedAtMs: Date.now(),
+              deadlineAtMs: prepared.deadlineMs ?? Number.MAX_SAFE_INTEGER,
+              attemptsUsed: 1,
+              maxAttempts: prepared.maxAttempts ?? 1,
+              attemptedMemberIds: new Set(prepared.memberId ? [prepared.memberId] : []),
+              ...(prepared.reservation ? { activeReservation: prepared.reservation } : {}),
+              ...(prepared.memberId ? { activeMemberId: prepared.memberId } : {}),
+              ...(options?.modelExecution?.requestDependencies
+                ? { requestDependencies: options.modelExecution.requestDependencies }
+                : {}),
+              failoverEnabled: prepared.group.failover.enabled,
+            };
+          }
+        } else {
+          admittedModel = createTurnModel(this, {
+            requestDependencies: options?.modelExecution?.requestDependencies,
+            selection: admittedModelSelection,
+          });
+        }
       } catch (error) {
         // 同步滞后/模型失效可在内层 Turn try 之前创建失败。只写日志会让已接纳输入
         // 没有终态、桌面与手机都看不到错误；复用 outcome，不等待同步、不改原选择。
@@ -607,6 +650,14 @@ export async function executeTurnCommand(
           turnTraceContext,
           userMessageId,
         };
+        if (admittedGroupRouting) {
+          // 组路由状态附着在 loopState 上（键名由 turn-model.ts 的
+          // GROUP_TURN_ROUTING_STATE_KEY 约定；RegularTurnLoopState 接口归
+          // turn-loop-state.ts 所有，这里用断言扩展，turn-model-step 经
+          // readGroupTurnRouting 读回）。
+          (loopState as unknown as Record<string, unknown>)[GROUP_TURN_ROUTING_STATE_KEY] =
+            admittedGroupRouting;
+        }
 
         openGoalStateChangeReminderDeferral(activeTurn);
         phaseStartedAt = startTurnPhase("regular_turn_loop");

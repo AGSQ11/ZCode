@@ -10,6 +10,10 @@ export {
   type ProviderSettingsView,
 } from "./model-provider/providerFacadeServices.js";
 export {
+  IModelGroupsService,
+  createModelGroupsService,
+} from "./model-provider/modelGroupsService.js";
+export {
   IModelProbeService,
   type IModelProbeService as IModelProbeServiceShape,
   createModelProbeService,

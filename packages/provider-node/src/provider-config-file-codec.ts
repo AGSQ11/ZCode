@@ -1,5 +1,10 @@
 import { z } from "zod";
 import { modelSelectionSchema } from "@zcode/shared/model-selection";
+import {
+  executionTargetSchema,
+  modelGroupsConfigSchema,
+  migrateModelSelectionToExecutionTarget,
+} from "@zcode/shared/model-group-types";
 import { completeModelConfigDataSchema, modelConfigDataSchema } from "@zcode/shared/model-config";
 import {
   parsePersonalModelConfigRules,
@@ -24,6 +29,8 @@ const storedProviderConfigSchema = z
         providerConfigRules: z.unknown(),
         modelConfigRules: z.unknown(),
         defaultModelSelection: modelSelectionSchema.optional(),
+        defaultTarget: executionTargetSchema.optional(),
+        modelGroups: modelGroupsConfigSchema.optional(),
       })
       .strict(),
   })
@@ -69,6 +76,9 @@ export function decodeProviderConfigFile(input: unknown): ProviderConfigLayerUpd
     version = nextVersion;
   }
   const parsed = storedProviderConfigSchema.parse(candidate);
+  const defaultTarget =
+    parsed.config.defaultTarget ??
+    migrateModelSelectionToExecutionTarget(parsed.config.defaultModelSelection);
   return Object.freeze({
     providers: parsePersonalProviderConfigMap(parsed.config.providerConfigRules),
     models: parsePersonalModelConfigRules(
@@ -78,6 +88,10 @@ export function decodeProviderConfigFile(input: unknown): ProviderConfigLayerUpd
     ...(parsed.config.defaultModelSelection === undefined
       ? {}
       : { defaultModelSelection: parsed.config.defaultModelSelection }),
+    ...(defaultTarget === undefined ? {} : { defaultTarget }),
+    ...(parsed.config.modelGroups === undefined
+      ? {}
+      : { modelGroups: parsed.config.modelGroups }),
   });
 }
 
@@ -110,15 +124,25 @@ function normalizeLegacyManualRules(input: unknown): unknown {
 }
 
 export function encodeProviderConfigFile(update: ProviderConfigLayerUpdate) {
+  // defaultTarget 是权威执行目标；legacy defaultModelSelection 只作向后兼容投影。
+  // 组目标在场时必须清除 legacy 值：同时持久化 defaultTarget=<group> 与
+  // defaultModelSelection=<stale model> 会让旧读者按旧模型路由（悬空一致性）。
+  const legacyDefault =
+    update.defaultTarget?.kind === "model"
+      ? update.defaultTarget.selection
+      : update.defaultTarget?.kind === "group"
+        ? undefined
+        : update.defaultModelSelection;
+
   return {
     schemaVersion: CURRENT_SCHEMA_VERSION,
     config: {
       ...(update.providerOrder === undefined ? {} : { providerOrder: update.providerOrder }),
       providerConfigRules: { providerRules: update.providers.toJSON() },
       modelConfigRules: update.models.toPersonalJSON(),
-      ...(update.defaultModelSelection === undefined
-        ? {}
-        : { defaultModelSelection: update.defaultModelSelection }),
+      ...(legacyDefault === undefined ? {} : { defaultModelSelection: legacyDefault }),
+      ...(update.defaultTarget === undefined ? {} : { defaultTarget: update.defaultTarget }),
+      ...(update.modelGroups === undefined ? {} : { modelGroups: update.modelGroups }),
     },
   };
 }
