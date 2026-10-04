@@ -157,6 +157,17 @@ export const resolveBuildAliases = ({
     rootDirectory,
     "../../packages/shared/src/model-selection.ts",
   ),
+  // Model Groups 的类型与纯路由助手同样是 shared 子路径引用；漏声明会被通用
+  // "@zcode/shared" 前缀改写成 `src/index.ts/model-group-types`，
+  // Desktop agent/SEA 打包失败（与上面几条同一类前缀改写陷阱）。
+  "@zcode/shared/model-group-types": resolve(
+    rootDirectory,
+    "../../packages/shared/src/model-group-types.ts",
+  ),
+  "@zcode/shared/model-group-routing": resolve(
+    rootDirectory,
+    "../../packages/shared/src/model-group-routing.ts",
+  ),
   // 共享 Model Schema 新增的子路径不能被通用 alias 拼到 index.ts 后面。
   "@zcode/shared/model-config": resolve(rootDirectory, "../../packages/shared/src/model-config.ts"),
   // 进程异常边界在 bootstrap 之前使用该轻量契约，不能落入 shared 的通用前缀 alias。
