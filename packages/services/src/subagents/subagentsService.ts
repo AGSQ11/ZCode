@@ -4,6 +4,8 @@ import { basename, dirname, isAbsolute, join, relative, resolve } from "node:pat
 import {
   createAgentStateId,
   createPluginAgentStateId,
+  parseBuiltInSubagentModelGroupOverrides,
+  parsePluginSubagentModelGroupOverrides,
   parsePluginSubagentModelSelectionOverrides,
   DEFAULT_ENABLED_OFFICIAL_PLUGIN_IDS,
   ZCODE_OFFICIAL_PLUGIN_MARKETPLACE_ID,
@@ -16,8 +18,10 @@ import {
   type AgentUpdateParams,
   type AgentsCapability,
   type AgentsListResult,
+  type BuiltInSubagentModelGroupOverrides,
   type BuiltInSubagentModelOverrideParams,
   type BuiltInSubagentModelSelectionOverrides,
+  type PluginSubagentModelGroupOverrides,
   type PluginSubagentModelOverrideParams,
   type PluginSubagentModelSelectionOverrides,
   type SubAgentConfig,
@@ -48,6 +52,9 @@ const subagentLogger = createServiceLogger("subagents");
 interface AgentsStateFile {
   builtInModelSelectionOverrides: BuiltInSubagentModelSelectionOverrides;
   pluginAgentModelSelectionOverrides: PluginSubagentModelSelectionOverrides;
+  // 模型组覆盖与同键 ModelSelection 覆盖互斥（写入时互清）；手改文件并存时组优先。
+  builtInModelGroupOverrides: BuiltInSubagentModelGroupOverrides;
+  pluginAgentModelGroupOverrides: PluginSubagentModelGroupOverrides;
   disabledAgentIds: string[];
   // 仅供旧版本回滚保留；新版存在选择字段后，禁止再从这两个字段恢复覆盖。
   builtInModelOverrides?: unknown;
@@ -87,11 +94,22 @@ const PLUGIN_MANIFEST_PATHS = [
   join(".codex-plugin", "plugin.json"),
 ] as const;
 
+/** 内置/插件 agent 的生效模型意图投影：组优先，组存在时不再暴露单模型。 */
+function modelIntentSummary(
+  selection: AgentSummary["modelSelection"],
+  groupId: string | undefined,
+): Pick<
+  AgentSummary,
+  "modelGroupId" | "modelGroupIdOverride" | "modelSelection" | "modelSelectionOverride"
+> {
+  if (groupId) return { modelGroupId: groupId, modelGroupIdOverride: groupId };
+  return { modelSelection: selection, modelSelectionOverride: selection };
+}
+
 function createBuiltInAgents(
   modelSelectionOverrides: BuiltInSubagentModelSelectionOverrides = {},
+  modelGroupOverrides: BuiltInSubagentModelGroupOverrides = {},
 ): AgentSummary[] {
-  const generalPurposeOverride = modelSelectionOverrides["general-purpose"];
-  const exploreOverride = modelSelectionOverrides.Explore;
   return [
     {
       id: createAgentStateId({
@@ -105,8 +123,10 @@ function createBuiltInAgents(
       // 内置子智能体使用显式身份色，避免 UI 按名称 hash 后把 general-purpose 显示为红色。
       color: "blue",
       injectAgentsMd: true,
-      modelSelection: generalPurposeOverride,
-      modelSelectionOverride: generalPurposeOverride,
+      ...modelIntentSummary(
+        modelSelectionOverrides["general-purpose"],
+        modelGroupOverrides["general-purpose"],
+      ),
       systemPrompt: "",
       tools: ["*"],
       path: "built-in:general-purpose",
@@ -125,8 +145,7 @@ function createBuiltInAgents(
       description: "Read-only search agent for broad fan-out searches.",
       color: "cyan",
       injectAgentsMd: false,
-      modelSelection: exploreOverride,
-      modelSelectionOverride: exploreOverride,
+      ...modelIntentSummary(modelSelectionOverrides.Explore, modelGroupOverrides.Explore),
       systemPrompt: "",
       tools: ["Bash", "Glob", "Grep", "Read", "WebFetch", "WebSearch", "TodoWrite"],
       path: "built-in:Explore",
@@ -142,6 +161,8 @@ function emptyAgentsState(): AgentsStateFile {
   return {
     builtInModelSelectionOverrides: {},
     pluginAgentModelSelectionOverrides: {},
+    builtInModelGroupOverrides: {},
+    pluginAgentModelGroupOverrides: {},
     disabledAgentIds: [],
   };
 }
@@ -162,6 +183,8 @@ async function readAgentStateFile(options?: SubagentsServiceOptions): Promise<Ag
     const parsed = JSON.parse(raw) as {
       builtInModelSelectionOverrides?: unknown;
       pluginAgentModelSelectionOverrides?: unknown;
+      builtInModelGroupOverrides?: unknown;
+      pluginAgentModelGroupOverrides?: unknown;
       builtInModelOverrides?: unknown;
       builtInThoughtLevelOverrides?: unknown;
       disabledAgentIds?: unknown;
@@ -172,6 +195,12 @@ async function readAgentStateFile(options?: SubagentsServiceOptions): Promise<Ag
       builtInModelSelectionOverrides: selections,
       pluginAgentModelSelectionOverrides: parsePluginSubagentModelSelectionOverrides(
         parsed.pluginAgentModelSelectionOverrides,
+      ),
+      builtInModelGroupOverrides: parseBuiltInSubagentModelGroupOverrides(
+        parsed.builtInModelGroupOverrides,
+      ),
+      pluginAgentModelGroupOverrides: parsePluginSubagentModelGroupOverrides(
+        parsed.pluginAgentModelGroupOverrides,
       ),
       disabledAgentIds: Array.isArray(parsed.disabledAgentIds)
         ? parsed.disabledAgentIds.filter(
@@ -516,12 +545,17 @@ function collectPluginAgentRoots(rootPath: string, manifestAgents: unknown): str
 
 function applyPluginAgentOverrides(agent: AgentSummary, state: AgentsStateFile): AgentSummary {
   const override = state.pluginAgentModelSelectionOverrides[agent.id];
-  // 插件文件只提供默认值；覆盖替换整份选择，不能混入原模型的档位。
-  return {
+  const groupOverride = state.pluginAgentModelGroupOverrides[agent.id];
+  // 插件文件只提供默认值；覆盖替换整份模型意图（单模型或组），不能混入原模型的档位，
+  // 也不能让 Markdown 的组与覆盖的单模型同时生效。
+  const defaults = {
     ...agent,
     defaultModelSelection: agent.modelSelection,
-    ...(override ? { modelSelection: override, modelSelectionOverride: override } : {}),
+    defaultModelGroupId: agent.modelGroupId,
   };
+  if (!override && !groupOverride) return defaults;
+  const { modelSelection: _selection, modelGroupId: _groupId, ...rest } = defaults;
+  return { ...rest, ...modelIntentSummary(override, groupOverride) };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -584,7 +618,10 @@ export function createSubagentsService(options?: SubagentsServiceOptions): ISuba
           });
       }
       const state = await readAgentStateFile(storageOptions);
-      const builtInAgents = createBuiltInAgents(state.builtInModelSelectionOverrides);
+      const builtInAgents = createBuiltInAgents(
+        state.builtInModelSelectionOverrides,
+        state.builtInModelGroupOverrides,
+      );
       const fileAgents = await discoverFileAgents({
         diagnostics,
         includeUserAgents: capability.userScopeAvailable,
@@ -653,16 +690,21 @@ export function createSubagentsService(options?: SubagentsServiceOptions): ISuba
         const builtInModelSelectionOverrides = {
           ...state.builtInModelSelectionOverrides,
         };
-        const modelSelection = normalizeSubagentModelSelection(params.modelSelection);
-        if (modelSelection) {
-          builtInModelSelectionOverrides[params.agentName] = modelSelection;
-        } else {
-          delete builtInModelSelectionOverrides[params.agentName];
-        }
+        const builtInModelGroupOverrides = { ...state.builtInModelGroupOverrides };
+        // 单模型与组互斥：写入任一方都先清掉同名的另一方，避免两个意图并存。
+        delete builtInModelSelectionOverrides[params.agentName];
+        delete builtInModelGroupOverrides[params.agentName];
+        const modelGroupId = params.modelGroupId?.trim();
+        const modelSelection = modelGroupId
+          ? undefined
+          : normalizeSubagentModelSelection(params.modelSelection);
+        if (modelGroupId) builtInModelGroupOverrides[params.agentName] = modelGroupId;
+        else if (modelSelection) builtInModelSelectionOverrides[params.agentName] = modelSelection;
         await writeAgentStateFile(
           {
             ...state,
             builtInModelSelectionOverrides,
+            builtInModelGroupOverrides,
           },
           storageOptions,
         );
@@ -679,11 +721,22 @@ export function createSubagentsService(options?: SubagentsServiceOptions): ISuba
       const runUpdate = async () => {
         const state = await readAgentStateFile(storageOptions);
         const overrides = { ...state.pluginAgentModelSelectionOverrides };
-        const selection = normalizeSubagentModelSelection(params.modelSelection);
-        if (selection) overrides[params.agentId] = selection;
-        else delete overrides[params.agentId];
+        const groupOverrides = { ...state.pluginAgentModelGroupOverrides };
+        // 单模型与组互斥：写入任一方都先清掉同键的另一方。
+        delete overrides[params.agentId];
+        delete groupOverrides[params.agentId];
+        const modelGroupId = params.modelGroupId?.trim();
+        const selection = modelGroupId
+          ? undefined
+          : normalizeSubagentModelSelection(params.modelSelection);
+        if (modelGroupId) groupOverrides[params.agentId] = modelGroupId;
+        else if (selection) overrides[params.agentId] = selection;
         await writeAgentStateFile(
-          { ...state, pluginAgentModelSelectionOverrides: overrides },
+          {
+            ...state,
+            pluginAgentModelSelectionOverrides: overrides,
+            pluginAgentModelGroupOverrides: groupOverrides,
+          },
           storageOptions,
         );
       };

@@ -7,6 +7,27 @@ import { parseModelPickerValue, type ModelSelection } from "./model-selection.js
 
 const INHERIT_NAMES = new Set(["inherit", "main", "sonnet", "opus", "haiku"]);
 
+/**
+ * 模型组意图在 Markdown 中写作 `model: group:<groupId>`。使用稳定组 id 而非显示名，
+ * 组改名不会让 agent 失效；旧版本把它当作无法解析的 model，安全退化为继承父模型。
+ */
+export const SUBAGENT_MARKDOWN_GROUP_PREFIX = "group:";
+
+/** 读取 Markdown 中的模型组意图；与 parseSubagentMarkdownSelection 互斥。 */
+export function parseSubagentMarkdownGroupId(
+  frontmatter: Record<string, unknown>,
+): string | undefined {
+  if (typeof frontmatter.model !== "string") return undefined;
+  const value = frontmatter.model.trim();
+  if (!value.startsWith(SUBAGENT_MARKDOWN_GROUP_PREFIX)) return undefined;
+  const groupId = value.slice(SUBAGENT_MARKDOWN_GROUP_PREFIX.length).trim();
+  return groupId || undefined;
+}
+
+export function formatSubagentMarkdownGroup(groupId: string): string {
+  return `${SUBAGENT_MARKDOWN_GROUP_PREFIX}${groupId.trim()}`;
+}
+
 /** Markdown 的正式字段始终为字符串 model + thoughtLevel；不解释中间态字段。 */
 export function parseSubagentMarkdownSelection(
   frontmatter: Record<string, unknown>,
@@ -14,6 +35,8 @@ export function parseSubagentMarkdownSelection(
   if (typeof frontmatter.model !== "string") return undefined;
   const value = frontmatter.model.trim();
   if (!value || INHERIT_NAMES.has(value)) return undefined;
+  // 组意图由 parseSubagentMarkdownGroupId 读取；不能再被 Picker 解析成单模型。
+  if (value.startsWith(SUBAGENT_MARKDOWN_GROUP_PREFIX)) return undefined;
   let selection: ModelSelection;
   const custom = decodeCustomModelValue(value);
   if (custom) {

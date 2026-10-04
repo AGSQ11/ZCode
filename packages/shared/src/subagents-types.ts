@@ -13,6 +13,41 @@ export type BuiltInSubagentModelSelectionOverrides = Partial<
 
 export type PluginSubagentModelSelectionOverrides = Readonly<Record<string, ModelSelection>>;
 
+/** 内置 subagent 的模型组覆盖（组 id）；与同名 ModelSelection 覆盖互斥，并存时组优先。 */
+export type BuiltInSubagentModelGroupOverrides = Partial<Record<BuiltInSubagentName, string>>;
+
+/** 插件 subagent 的模型组覆盖（键为 createPluginAgentStateId，值为组 id）。 */
+export type PluginSubagentModelGroupOverrides = Readonly<Record<string, string>>;
+
+function parseGroupIdRecord(
+  value: unknown,
+  acceptKey: (key: string) => boolean,
+): Record<string, string> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  return Object.fromEntries(
+    Object.entries(value).flatMap(([key, candidate]) => {
+      const groupId = typeof candidate === "string" ? candidate.trim() : "";
+      return acceptKey(key) && groupId ? [[key, groupId]] : [];
+    }),
+  );
+}
+
+const BUILT_IN_SUBAGENT_NAMES: ReadonlySet<string> = new Set(["general-purpose", "Explore"]);
+
+/** 正式 reader：只接受内置名称到非空组 id 的映射，损坏值逐项丢弃。 */
+export function parseBuiltInSubagentModelGroupOverrides(
+  value: unknown,
+): BuiltInSubagentModelGroupOverrides {
+  return parseGroupIdRecord(value, (key) => BUILT_IN_SUBAGENT_NAMES.has(key));
+}
+
+/** 正式 reader：只接受 plugin: 身份到非空组 id 的映射，损坏值逐项丢弃。 */
+export function parsePluginSubagentModelGroupOverrides(
+  value: unknown,
+): PluginSubagentModelGroupOverrides {
+  return parseGroupIdRecord(value, (key) => key.startsWith("plugin:"));
+}
+
 /** 正式 reader 只接受结构化覆盖，不在读取时解释旧双 map 或重新匹配 Provider。 */
 export function parsePluginSubagentModelSelectionOverrides(
   value: unknown,
@@ -49,6 +84,12 @@ export interface AgentSummary {
   modelSelection?: ModelSelection;
   defaultModelSelection?: ModelSelection;
   modelSelectionOverride?: ModelSelection;
+  /** 生效的模型组意图；存在时 modelSelection 为空（两者互斥）。 */
+  modelGroupId?: string;
+  /** 插件 agent 自身 Markdown 声明的组（未被覆盖前的默认值）。 */
+  defaultModelGroupId?: string;
+  /** 用户在设置页写入的组覆盖（内置/插件 agent）。 */
+  modelGroupIdOverride?: string;
   tools?: string[];
   disallowedTools?: string[];
   injectAgentsMd?: boolean;
@@ -94,6 +135,8 @@ export interface SubAgentConfig {
   systemPrompt: string;
   color?: AgentColor;
   modelSelection?: ModelSelection;
+  /** 模型组意图；与 modelSelection 互斥，写入 Markdown 为 `model: group:<id>`。 */
+  modelGroupId?: string;
   tools?: string[];
   disallowedTools?: string[];
   injectAgentsMd?: boolean;
@@ -130,14 +173,17 @@ export interface AgentDeleteParams {
   filePath: string;
 }
 
+/** modelSelection 与 modelGroupId 至多给一个；都缺省表示清除覆盖、回到继承。 */
 export interface BuiltInSubagentModelOverrideParams {
   agentName: BuiltInSubagentName;
   modelSelection?: ModelSelection;
+  modelGroupId?: string;
 }
 
 export interface PluginSubagentModelOverrideParams {
   agentId: string;
   modelSelection?: ModelSelection;
+  modelGroupId?: string;
 }
 
 /**

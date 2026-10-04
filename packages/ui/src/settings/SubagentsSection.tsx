@@ -7,6 +7,7 @@ import { completeNewModelSelection } from "@zcode/provider";
 import {
   TID_SUBAGENT_BUILT_IN_MODEL_TRIGGER,
   TID_SUBAGENT_ROW,
+  SUBAGENT_MARKDOWN_GROUP_PREFIX,
   ZCODE_AGENT_PROVIDER,
   testId,
   type AgentColor,
@@ -49,6 +50,7 @@ import {
 } from "@/lib/modelSelectionGroups.js";
 import { resolveModelThoughtOption } from "@/lib/modelThoughtOption.js";
 import { parseModelPickerValue } from "@/lib/zcodeSessionProjection.js";
+import { useEnabledModelGroups } from "@/hooks/useEnabledModelGroups.js";
 import { encodeCustomModelValue } from "@/lib/zcodeCustomModelValue.js";
 import { SUBAGENT_COLORS, SUBAGENT_COLOR_CLASS } from "@/lib/subagentColors.js";
 import { SettingsResourceGroupHeader } from "@/settings/SettingsResourceGroupHeader.js";
@@ -192,10 +194,24 @@ function toPersistedModel(model: string): string | undefined {
   return trimmedModel && trimmedModel !== INHERIT_MODEL_VALUE ? trimmedModel : undefined;
 }
 
-function toSubagentModelValue(selection: ModelSelection | undefined): string {
+// 模型组在 Picker 值空间里编码为 `group:<groupId>`，与 Composer 菜单和 Markdown 同一编码。
+function isSubagentGroupValue(model: string | undefined): boolean {
+  return Boolean(model?.trim().startsWith(SUBAGENT_MARKDOWN_GROUP_PREFIX));
+}
+
+function toSubagentModelValue(
+  selection: ModelSelection | undefined,
+  modelGroupId?: string,
+): string {
+  if (modelGroupId) return `${SUBAGENT_MARKDOWN_GROUP_PREFIX}${modelGroupId}`;
   return selection
     ? encodeCustomModelValue(selection.providerId, selection.modelId)
     : INHERIT_MODEL_VALUE;
+}
+
+function toSubagentModelGroupId(model: string | undefined): string | undefined {
+  if (!isSubagentGroupValue(model)) return undefined;
+  return model?.trim().slice(SUBAGENT_MARKDOWN_GROUP_PREFIX.length).trim() || undefined;
 }
 
 function toSubagentModelSelection(
@@ -203,7 +219,8 @@ function toSubagentModelSelection(
   thoughtLevel?: string,
 ): ModelSelection | undefined {
   const persistedModel = model ? toPersistedModel(model) : undefined;
-  if (!persistedModel) return undefined;
+  // 组值不是单模型：交给 toSubagentModelGroupId，不能被 Picker 解析成 provider/model。
+  if (!persistedModel || isSubagentGroupValue(persistedModel)) return undefined;
   const selection = parseModelPickerValue(persistedModel);
   const reasoningLevel = thoughtLevel?.trim();
   return {
@@ -223,7 +240,8 @@ function resolveSubagentThoughtOptionState(params: {
   thoughtLevel?: string;
 }): SubagentThoughtOptionState {
   const persistedModel = toPersistedModel(params.model);
-  if (!persistedModel || !params.modelAvailable) {
+  // 组成员各自携带思考档位，组目标没有可配置的单一档位。
+  if (!persistedModel || !params.modelAvailable || isSubagentGroupValue(persistedModel)) {
     return { kind: "not-applicable" };
   }
   const modelSelection = parseModelPickerValue(persistedModel);
@@ -299,6 +317,7 @@ function createSubagentFormInitialState(
     | "description"
     | "color"
     | "modelSelection"
+    | "modelGroupId"
     | "tools"
     | "systemPrompt"
     | "injectAgentsMd"
@@ -308,7 +327,7 @@ function createSubagentFormInitialState(
     name: initial?.name ?? "",
     description: initial?.description ?? "",
     color: initial?.color ?? "yellow",
-    model: toSubagentModelValue(initial?.modelSelection),
+    model: toSubagentModelValue(initial?.modelSelection, initial?.modelGroupId),
     thoughtLevel: initial?.modelSelection?.options?.reasoningLevel,
     injectAgentsMd: initial?.injectAgentsMd ?? true,
     inheritAllTools: initial?.tools === undefined || initial.tools.length === 0,
@@ -483,7 +502,7 @@ function AgentListRow({
   const modelLabel = resolveSubagentModelLabel({
     inheritLabel: inheritModelLabel,
     modelGroups: modelSelectGroups,
-    model: toSubagentModelValue(agent.modelSelection),
+    model: toSubagentModelValue(agent.modelSelection, agent.modelGroupId),
   });
   const toolCount = agent.tools?.length ?? 0;
   const toolsLabel = allowsAllTools(agent.tools)
@@ -585,6 +604,18 @@ function AgentListRow({
   );
 }
 
+function overrideControlConfig(agent: AgentSummary): { model?: string; thoughtLevel?: string } {
+  if (agent.modelGroupIdOverride) {
+    return { model: toSubagentModelValue(undefined, agent.modelGroupIdOverride) };
+  }
+  return {
+    model: agent.modelSelectionOverride
+      ? toSubagentModelValue(agent.modelSelectionOverride)
+      : undefined,
+    thoughtLevel: agent.modelSelectionOverride?.options?.reasoningLevel,
+  };
+}
+
 /** 内置与插件 subagent 共用的行内 model / effort 覆盖控件，即改即存。 */
 function SubagentModelOverrideControl({
   agent,
@@ -610,12 +641,7 @@ function SubagentModelOverrideControl({
   const [config, setConfig] = useState<{
     model?: string;
     thoughtLevel?: string;
-  }>(() => ({
-    model: agent.modelSelectionOverride
-      ? toSubagentModelValue(agent.modelSelectionOverride)
-      : undefined,
-    thoughtLevel: agent.modelSelectionOverride?.options?.reasoningLevel,
-  }));
+  }>(() => overrideControlConfig(agent));
   const defaultLabel = intl.formatMessage({
     id: "settings.subagents.model.defaultMain",
   });
@@ -649,13 +675,8 @@ function SubagentModelOverrideControl({
             model: value,
           });
   useEffect(() => {
-    setConfig({
-      model: agent.modelSelectionOverride
-        ? toSubagentModelValue(agent.modelSelectionOverride)
-        : undefined,
-      thoughtLevel: agent.modelSelectionOverride?.options?.reasoningLevel,
-    });
-  }, [agent.modelSelectionOverride]);
+    setConfig(overrideControlConfig(agent));
+  }, [agent]);
 
   const persistConfig = useCallback(
     async (nextConfig: { model?: string; thoughtLevel?: string }) => {
@@ -667,7 +688,12 @@ function SubagentModelOverrideControl({
       setPending(true);
       try {
         let selectedConfig = nextConfig;
-        if (nextConfig.model && nextConfig.model !== config.model) {
+        // 组目标没有单一模型可做 Start Plan 推荐，直接持久化组意图。
+        if (
+          nextConfig.model &&
+          nextConfig.model !== config.model &&
+          !isSubagentGroupValue(nextConfig.model)
+        ) {
           const selection = toSubagentModelSelection(nextConfig.model, nextConfig.thoughtLevel);
           const chosen = selection ? await recommendStartPlan(selection) : null;
           if (!chosen) {
@@ -706,7 +732,7 @@ function SubagentModelOverrideControl({
         modelSelectionView,
         modelSelectionLoading,
         thoughtLevel:
-          nextModel && modelSelectionView
+          nextModel && modelSelectionView && !isSubagentGroupValue(nextModel)
             ? completeNewModelSelection(modelSelectionView, parseModelPickerValue(nextModel))
                 ?.options?.reasoningLevel
             : undefined,
@@ -844,7 +870,7 @@ function SubagentForm({
       setModel(nextModel);
       const identity = toPersistedModel(nextModel);
       const selected =
-        identity && modelSelectionView
+        identity && modelSelectionView && !isSubagentGroupValue(identity)
           ? completeNewModelSelection(modelSelectionView, parseModelPickerValue(identity))
           : undefined;
       setThoughtLevel(selected?.options?.reasoningLevel ?? "");
@@ -1001,8 +1027,9 @@ function SubagentForm({
     if (!validate()) {
       return;
     }
+    const modelGroupId = toSubagentModelGroupId(persistedModel);
     let selection = toSubagentModelSelection(persistedModel, thoughtLevel);
-    if (hasExplicitModelChanged(initial?.modelSelection, selection)) {
+    if (selection && hasExplicitModelChanged(initial?.modelSelection, selection)) {
       const chosen = await recommendStartPlan(selection);
       if (!chosen) return;
       selection = chosen;
@@ -1013,7 +1040,7 @@ function SubagentForm({
       systemPrompt: systemPrompt.trim(),
       color,
       injectAgentsMd,
-      ...(selection ? { modelSelection: selection } : {}),
+      ...(modelGroupId ? { modelGroupId } : selection ? { modelSelection: selection } : {}),
       tools: inheritAllTools
         ? undefined
         : mergeTools(selectedTools, initialFormState.preservedTools),
@@ -1326,7 +1353,25 @@ export function SubagentsSection({ onManageModels }: SubagentsSectionProps) {
       }),
     });
   }, [intl, modelSelectionView]);
-  const subagentModelSelectGroups = chatModelSelectGroups;
+  // Subagent 设置的候选 = 注册表模型 + enabled 模型组（同 Composer 的 `group:<id>` 编码）。
+  const enabledModelGroups = useEnabledModelGroups(localHostServices.modelGroupsService);
+  const subagentModelSelectGroups = useMemo<ModelSelectGroup[]>(() => {
+    if (enabledModelGroups.length === 0) return chatModelSelectGroups;
+    return [
+      ...chatModelSelectGroups,
+      {
+        key: "model-groups",
+        label: intl.formatMessage({ id: "chat.toolbar.model.modelGroups" }),
+        directItems: true,
+        items: enabledModelGroups.map((group) => ({
+          key: `model-group:${group.id}`,
+          value: `${SUBAGENT_MARKDOWN_GROUP_PREFIX}${group.id}`,
+          name: group.name,
+          badgeLabel: group.workloadLevel.toUpperCase(),
+        })),
+      },
+    ];
+  }, [chatModelSelectGroups, enabledModelGroups, intl]);
   const loadAgents = useCallback(
     async (showBlockingLoading: boolean) => {
       setLoading(showBlockingLoading);
@@ -1514,11 +1559,20 @@ export function SubagentsSection({ onManageModels }: SubagentsSectionProps) {
       setOperatingAgentId(agent.id);
       try {
         const modelSelection = toSubagentModelSelection(config.model, config.thoughtLevel);
+        const modelGroupId = toSubagentModelGroupId(config.model);
         if (agentName) {
-          await subagentsService.setBuiltInModelOverride({ agentName, modelSelection });
+          await subagentsService.setBuiltInModelOverride({
+            agentName,
+            modelSelection,
+            modelGroupId,
+          });
         } else {
           // 稳定 ID 不含插件版本；升级换目录后继续读取同一份用户 Selection 覆盖。
-          await subagentsService.setPluginAgentModelOverride({ agentId: agent.id, modelSelection });
+          await subagentsService.setPluginAgentModelOverride({
+            agentId: agent.id,
+            modelSelection,
+            modelGroupId,
+          });
         }
       } catch (changeError) {
         toast(changeError instanceof Error ? changeError.message : String(changeError));

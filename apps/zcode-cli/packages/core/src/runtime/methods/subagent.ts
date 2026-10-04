@@ -27,6 +27,10 @@ import { AgentRuntime } from "../agent-runtime.js";
 import type { AgentRuntimeInternal } from "../internal.js";
 import { cloneModelSelection } from "../model-selection.js";
 import { resolveSubagentSelection } from "../helpers/subagent-selection.js";
+import {
+  resolveSubagentGroupIntent,
+  resolveSubagentGroupLaunch,
+} from "../helpers/subagent-group-target.js";
 import type { AgentRuntimeDeps } from "../types.js";
 import { toMcpToolName } from "../../mcp/index.js";
 import { createBorrowedSubagentMcpAccess } from "../../subagent/borrowed-mcp-port.js";
@@ -71,6 +75,7 @@ export function createDefaultSubagentPort(
     outputRootDir: this.config.subagents?.outputRootDir,
     profiles: this.config.subagents?.profiles,
     builtInModelSelectionOverrides: this.config.subagents?.builtInModelSelectionOverrides,
+    builtInModelGroupOverrides: this.config.subagents?.builtInModelGroupOverrides,
     runtimeTaskRegistry: this.runtimeTaskRegistry,
     emitParentEvent: async (event, traceContext) => {
       if (isStaleBranchRuntimeTaskEvent(this, event)) return;
@@ -97,13 +102,31 @@ export function createDefaultSubagentPort(
         request.profile.injectAgentsMd !== false
           ? this.contextSourceSnapshot?.userInstructions
           : undefined;
-      const { selection: profileChildSelection, hasConcreteModel } = resolveSubagentSelection({
-        profileSelection: request.profile.modelSelection,
-        parentSelection: this.getSessionModelSelection(),
-        overrideSelection: options?.modelOverride?.selection,
-        resolveSelection: deps.resolveEffectiveModelSelection,
-      });
       const modelOverride = options?.modelOverride;
+      // 模型组意图先于单模型解析：父会话为组时没有 sessionModelSelection，
+      // 旧路径会以 selection-missing 拒绝启动（spec 2026-10-04 §1）。
+      const childGroupId = resolveSubagentGroupIntent({
+        overrideSelection: modelOverride?.selection,
+        profileGroupId: request.profile.modelGroupId,
+        profileSelection: request.profile.modelSelection,
+        parentTarget: this.getSessionExecutionTarget(),
+      });
+      const childGroupLaunch = childGroupId
+        ? resolveSubagentGroupLaunch({
+            groupId: childGroupId,
+            groupsConfig: await this.resolveModelGroupsConfigForValidation(),
+            routerAvailable: this.modelGroupRouter !== undefined,
+            ...(options?.model ? { activeParentSelection: options.model } : {}),
+          })
+        : undefined;
+      const { selection: profileChildSelection, hasConcreteModel } = childGroupLaunch
+        ? { selection: childGroupLaunch.representativeSelection, hasConcreteModel: true }
+        : resolveSubagentSelection({
+            profileSelection: request.profile.modelSelection,
+            parentSelection: this.getSessionModelSelection(),
+            overrideSelection: modelOverride?.selection,
+            resolveSelection: deps.resolveEffectiveModelSelection,
+          });
       const inheritedModel = !modelOverride && !hasConcreteModel ? options?.model : undefined;
       // Core Server override 优先于持久化 profile 与父模型继承，但仍只是标准 Selection。
       const childSelection = inheritedModel
@@ -235,6 +258,7 @@ export function createDefaultSubagentPort(
         parentSessionId: this.sessionId,
         childSessionId: request.sessionId,
         agentType: request.agentType,
+        ...(childGroupId ? { modelGroupId: childGroupId } : {}),
       });
       const childRuntime = new AgentRuntime(
         request.sessionId,
@@ -247,6 +271,14 @@ export function createDefaultSubagentPort(
           // 配置都指向父 turn 快照；runner 禁止它转后台，provider registry 则由父 turn
           // finally 清理，快照不会成为可恢复的 session 配置。
           modelSelection: cloneModelSelection(childSelection),
+          // 组目标：child 的权威意图是组，modelSelection 只是预算预塑形的代表成员。
+          // 组配置读取 live 源，组编辑影响 child 的下一次路由（spec 2026-10-04 §3）。
+          ...(childGroupId
+            ? {
+                executionTarget: { kind: "group" as const, groupId: childGroupId },
+                modelGroupsConfig: this.config.modelGroupsConfig,
+              }
+            : {}),
           modelContextBudgetStrategy: this.config.modelContextBudgetStrategy,
           workingDirectory: request.workingDirectory,
           // 执行模型只由 child Active Model 投影进 Context；envInfo 不保存第二份模型事实。
@@ -298,6 +330,9 @@ export function createDefaultSubagentPort(
           // 子 runtime 继承父的模型请求准入端口：subagent 的请求 provider 同样看得见，
           // 它们该与父一样喂治理器信号（父是 observer 则子也是 observer）。
           modelRequestAdmission: this.modelRequestAdmission,
+          // 共享父 runtime 的路由器实例：成员 maxInFlight、冷却与 24h 计数覆盖父与全部
+          // 子任务，路由状态保持单一所有者（spec 2026-10-04 §3）。
+          ...(childGroupId ? { modelGroupRouter: this.modelGroupRouter } : {}),
           modelFactory: childModelFactory,
           resolveEffectiveModelSelection: deps.resolveEffectiveModelSelection,
           // 子 runtime 自己仍使用 request.sessionId 做事件持久化和 trace 归档；对外阻塞交互

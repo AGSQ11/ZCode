@@ -10,10 +10,14 @@ import type { Logger, PluginMetadata } from "@zcode/contracts";
 import {
   createAgentStateId,
   createPluginAgentStateId,
+  parseBuiltInSubagentModelGroupOverrides,
+  parsePluginSubagentModelGroupOverrides,
   parsePluginSubagentModelSelectionOverrides,
   modelSelectionSchema,
+  type BuiltInSubagentModelGroupOverrides,
   type BuiltInSubagentModelSelectionOverrides,
   type BuiltInSubagentName,
+  type PluginSubagentModelGroupOverrides,
   type PluginSubagentModelSelectionOverrides,
 } from "@zcode/shared";
 
@@ -25,7 +29,9 @@ interface LoadZCodeAgentProfilesInput {
 
 interface LoadZCodeAgentProfilesResult {
   builtInModelSelectionOverrides: BuiltInSubagentModelSelectionOverrides;
+  builtInModelGroupOverrides: BuiltInSubagentModelGroupOverrides;
   pluginAgentModelSelectionOverrides: PluginSubagentModelSelectionOverrides;
+  pluginAgentModelGroupOverrides: PluginSubagentModelGroupOverrides;
   diagnostics: AgentProfileParseDiagnostic[];
   profiles: AgentProfile[];
 }
@@ -36,6 +42,8 @@ interface LoadPluginAgentProfilesInput {
   reservedProfileNames?: Iterable<string>;
   /** 来自已完成存储迁移的启动快照；不在插件 loader 另读磁盘或查询账号。 */
   modelSelectionOverrides?: PluginSubagentModelSelectionOverrides;
+  /** 同一启动快照中的组覆盖；与同键 ModelSelection 覆盖并存时组优先。 */
+  modelGroupOverrides?: PluginSubagentModelGroupOverrides;
 }
 
 interface ParsedPluginAgentProfile {
@@ -106,7 +114,9 @@ export async function loadZCodeAgentProfiles(
 
   return {
     builtInModelSelectionOverrides: agentState.builtInModelSelectionOverrides,
+    builtInModelGroupOverrides: agentState.builtInModelGroupOverrides,
     pluginAgentModelSelectionOverrides: agentState.pluginAgentModelSelectionOverrides,
+    pluginAgentModelGroupOverrides: agentState.pluginAgentModelGroupOverrides,
     diagnostics,
     profiles,
   };
@@ -147,13 +157,14 @@ export function loadPluginAgentProfiles(
   const bareNameCounts = countBareProfileNames(parsedProfiles);
   const profiles: AgentProfile[] = [];
   for (const parsed of parsedProfiles) {
-    const override =
-      input.modelSelectionOverrides?.[createPluginAgentStateId(parsed.plugin.id, parsed.bareName)];
+    const stateId = createPluginAgentStateId(parsed.plugin.id, parsed.bareName);
     // 先替换完整选择再展开别名，避免同一插件的两个调用入口使用不同模型/档位。
-    const canonical = {
-      ...namespacePluginAgentProfile(parsed),
-      ...(override ? { modelSelection: override } : {}),
-    };
+    // 覆盖是完整的模型意图：组覆盖清掉 Markdown 的单模型，单模型覆盖清掉 Markdown 的组。
+    const canonical = applyPluginModelIntentOverride(
+      namespacePluginAgentProfile(parsed),
+      input.modelSelectionOverrides?.[stateId],
+      input.modelGroupOverrides?.[stateId],
+    );
     profiles.push(canonical);
 
     const bareName = parsed.bareName.trim();
@@ -182,10 +193,22 @@ export function loadPluginAgentProfiles(
 
   return {
     builtInModelSelectionOverrides: {},
+    builtInModelGroupOverrides: {},
     pluginAgentModelSelectionOverrides: {},
+    pluginAgentModelGroupOverrides: {},
     diagnostics,
     profiles,
   };
+}
+
+export function applyPluginModelIntentOverride(
+  profile: AgentProfile,
+  selection: AgentProfile["modelSelection"],
+  groupId: string | undefined,
+): AgentProfile {
+  if (!groupId && !selection) return profile;
+  const { modelSelection: _selection, modelGroupId: _groupId, ...rest } = profile;
+  return groupId ? { ...rest, modelGroupId: groupId } : { ...rest, modelSelection: selection };
 }
 
 function parsePluginAgentProfile(input: {
@@ -255,17 +278,27 @@ function countBareProfileNames(
 
 function readAgentState(storageRoot: string): {
   builtInModelSelectionOverrides: BuiltInSubagentModelSelectionOverrides;
+  builtInModelGroupOverrides: BuiltInSubagentModelGroupOverrides;
   pluginAgentModelSelectionOverrides: PluginSubagentModelSelectionOverrides;
+  pluginAgentModelGroupOverrides: PluginSubagentModelGroupOverrides;
   disabledAgentIds: Set<string>;
 } {
   try {
     const raw = readFileSync(join(storageRoot, "v2", "agents-state.json"), "utf8");
     const parsed = JSON.parse(raw) as {
       builtInModelSelectionOverrides?: unknown;
+      builtInModelGroupOverrides?: unknown;
       pluginAgentModelSelectionOverrides?: unknown;
+      pluginAgentModelGroupOverrides?: unknown;
       disabledAgentIds?: unknown;
     };
     return {
+      builtInModelGroupOverrides: parseBuiltInSubagentModelGroupOverrides(
+        parsed.builtInModelGroupOverrides,
+      ),
+      pluginAgentModelGroupOverrides: parsePluginSubagentModelGroupOverrides(
+        parsed.pluginAgentModelGroupOverrides,
+      ),
       pluginAgentModelSelectionOverrides: parsePluginSubagentModelSelectionOverrides(
         parsed.pluginAgentModelSelectionOverrides,
       ),
@@ -283,7 +316,9 @@ function readAgentState(storageRoot: string): {
   } catch {
     return {
       builtInModelSelectionOverrides: {},
+      builtInModelGroupOverrides: {},
       pluginAgentModelSelectionOverrides: {},
+      pluginAgentModelGroupOverrides: {},
       disabledAgentIds: new Set(),
     };
   }
